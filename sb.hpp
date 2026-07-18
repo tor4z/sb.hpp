@@ -94,6 +94,12 @@ namespace sb
 #define SB_SEC_TO_NS        (1000 * 1000 * 1000)
 #define TIMESPEC_TO_NS(ts)  ((ts).tv_nsec + (ts).tv_sec * SB_SEC_TO_NS)
 
+#ifdef __APPLE__
+#   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtimespec)
+#else
+#   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtim)
+#endif
+
 class Object
 {
 public:
@@ -132,14 +138,14 @@ bool auto_rebuild_self__(int argc, char** argv, const char* src)
     }
 
     if (stat(sb_name, &st) == 0) {
-        bin_mtime = TIMESPEC_TO_NS(st.st_mtim);
+        bin_mtime = FILE_MTIME_NS(st);
     } else {
         perror("Error bin file stats");
         return false;
     }
 
     if (stat(src, &st) == 0) {
-        src_mtime = TIMESPEC_TO_NS(st.st_mtim);
+        src_mtime = FILE_MTIME_NS(st);
     } else {
         perror("Error src file stats");
         return false;
@@ -234,9 +240,9 @@ int Object::compile() const
     bool should_compile = true;
     struct stat st;
     if (stat(src.c_str(), &st) == 0) {
-        uint64_t src_mtime = TIMESPEC_TO_NS(st.st_mtim);
+        uint64_t src_mtime = FILE_MTIME_NS(st);
         if (stat(name.c_str(), &st) == 0) {
-            uint64_t obj_mtime = TIMESPEC_TO_NS(st.st_mtim);
+            uint64_t obj_mtime = FILE_MTIME_NS(st);
             if (obj_mtime > src_mtime && !entity_->always_build_) {
                 should_compile = false;
             }

@@ -1,6 +1,7 @@
 #ifndef SB_HPP_
 #define SB_HPP_
 
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,6 +34,7 @@ public:
     Entity& add_flags(const std::vector<std::string>& flags);
     Entity& always_build(bool sure = true);
     int status() const;
+    const std::string& path() const;
 
 #if __cplusplus >= 201703L
     template<typename... Args>
@@ -80,6 +82,315 @@ Entity create_lib(const std::string& name);
 Entity create_exe(const std::string& name);
 
 #define auto_rebuild_self(argc, argv) auto_rebuild_self__(argc, argv, __FILE__)
+
+// -------- Unit testing ---------
+
+struct BaseTestingCase
+{
+    BaseTestingCase(const std::string& module, const std::string& name);
+    std::ostream& on_assert_success(std::ostream& os);
+    std::ostream& on_assert_failed(std::ostream& os, const char *filename, int line,
+        const char *checking);
+    void report(std::ostream& os) const;
+
+    virtual void body() = 0;
+
+    const std::string __module;
+    const std::string __name;
+    const int __module_name_len = 47;
+    const int __padding_len;
+    int __failed_assert;
+    int __success_assert;
+}; // class BaseTestingCase
+
+#define SB_ABS(x) ((x) > 0 ? (x) : -(x))
+#define SB_FLT_NEAR(x, y, err) (SB_ABS((x) - (y)) < err)
+
+
+class TestingCases
+{
+public:
+    static TestingCases* instance();
+    const std::vector<BaseTestingCase*>& cases() const;
+    void report() const;
+private:
+    friend class BaseTestingCase;
+    void add_case(BaseTestingCase* c);
+    TestingCases() {}
+
+    std::vector<BaseTestingCase*> cases_;
+}; // class TestingCases
+
+
+#define SB_ASSERT_T(x)                                                                              \
+    do {                                                                                            \
+        if (x) {                                                                                    \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_T")                             \
+                << #x" != true\n";                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_F(x)                                                                              \
+    do {                                                                                            \
+        if (!(x)) {                                                                                 \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_F")                             \
+                << #x" != false\n";                                                                 \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_EQ(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) == (y)) {                                                                           \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_EQ")                            \
+                << #x" != "#y"\n";                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_NE(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) != (y)) {                                                                           \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_NE")                            \
+                << #x" == "#y"\n";                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_GT(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) > (y)) {                                                                            \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_GT")                            \
+                << #x" <= "#y"\n";                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_GE(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) >= (y)) {                                                                           \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_GE")                            \
+                << #x" < "#y"\n";                                                                   \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_LT(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) < (y)) {                                                                            \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_NT")                            \
+                << #x" >= "#y"\n";                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_LE(x, y)                                                                          \
+    do {                                                                                            \
+        if ((x) <= (y)) {                                                                           \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_LE")                            \
+                << #x" > "#y"\n";                                                                   \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_ARRAY_EQ(x, y, n)                                                                 \
+    do {                                                                                            \
+        std::ostream& os = std::cout;                                                               \
+        bool has_failed_case = false;                                                               \
+        for (size_t i = 0; i < n; ++i) {                                                            \
+            if ((x)[i] != (y)[i]) {                                                                 \
+                if (!has_failed_case) {                                                             \
+                    on_assert_failed(os, __FILE__, __LINE__, "ASSERT_ARRAY_EQ");                    \
+                }                                                                                   \
+                if (has_failed_case) {                                                              \
+                    os << ", ";                                                                     \
+                }                                                                                   \
+                os << #x "[" << i << "] != " #y "[" << i << ']';                                    \
+                has_failed_case = true;                                                             \
+            }                                                                                       \
+        }                                                                                           \
+        if (has_failed_case) {                                                                      \
+            os << '\n';                                                                             \
+        } else {                                                                                    \
+            on_assert_success(os);                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_ARRAY_NEAR(x, y, n, abs_err)                                                      \
+    do {                                                                                            \
+        std::ostream& os = std::cout;                                                               \
+        bool has_failed_case = false;                                                               \
+        for (size_t i = 0; i < n; ++i) {                                                            \
+            if (!SB_FLT_NEAR((x)[i], (y)[i], abs_err)) {                                            \
+                if (!has_failed_case) {                                                             \
+                    on_assert_failed(os, __FILE__, __LINE__, "ASSERT_ARRAY_NEAR");                  \
+                }                                                                                   \
+                if (has_failed_case) {                                                              \
+                    os << ", ";                                                                     \
+                }                                                                                   \
+                os << #x "[" << i << "] != " #y "[" << i << ']';                                    \
+                has_failed_case = true;                                                             \
+            }                                                                                       \
+        }                                                                                           \
+        if (has_failed_case) {                                                                      \
+            os << '\n';                                                                             \
+        } else {                                                                                    \
+            on_assert_success(os);                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_ARRAY2_EQ(x, y, m, n)                                                             \
+    do {                                                                                            \
+        std::ostream& os = std::cout;                                                               \
+        bool has_failed_case = false;                                                               \
+        for (size_t i = 0; i < n; ++i) {                                                            \
+            for (size_t j = 0; j < m; ++j) {                                                        \
+                if ((x)[i][j] != (y)[i][j]) {                                                       \
+                    if (!has_failed_case) {                                                         \
+                        on_assert_failed(os, __FILE__, __LINE__, "ASSERT_ARRAY2_EQ");               \
+                    }                                                                               \
+                    if (has_failed_case) {                                                          \
+                        os << ", ";                                                                 \
+                    }                                                                               \
+                    os << #x "[" << i << "][" << j << "] != " #y "[" << i << "][" << j << ']';      \
+                    has_failed_case = true;                                                         \
+                }                                                                                   \
+            }                                                                                       \
+        }                                                                                           \
+        if (has_failed_case) {                                                                      \
+            os << '\n';                                                                             \
+        } else {                                                                                    \
+            on_assert_success(os);                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_ARRAY2_NEAR(x, y, m, n, abs_err)                                                  \
+    do {                                                                                            \
+        std::ostream& os = std::cout;                                                               \
+        bool has_failed_case = false;                                                               \
+        for (size_t i = 0; i < n; ++i) {                                                            \
+            for (size_t j = 0; j < m; ++j) {                                                        \
+                if (!SB_FLT_NEAR((x)[i][j], (y)[i][j], abs_err)) {                                  \
+                    if (!has_failed_case) {                                                         \
+                        on_assert_failed(os, __FILE__, __LINE__, "ASSERT_ARRAY2_NEAR");             \
+                    }                                                                               \
+                    if (has_failed_case) {                                                          \
+                        os << ", ";                                                                 \
+                    }                                                                               \
+                    os << #x "[" << i << "][" << j << "] != " #y "[" << i << "][" << j << ']';      \
+                    has_failed_case = true;                                                         \
+                }                                                                                   \
+            }                                                                                       \
+        }                                                                                           \
+        if (has_failed_case) {                                                                      \
+            os << '\n';                                                                             \
+        } else {                                                                                    \
+            on_assert_success(os);                                                                  \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_NEAR(x, y, abs_err)                                                               \
+    do {                                                                                            \
+        if (SB_FLT_NEAR(x, y, abs_err)) {                                                           \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_NEAR")                          \
+                <<  #x" != "#y"\n";                                                                 \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_NNEAR(x, y, abs_err)                                                              \
+    do {                                                                                            \
+        if (!SB_FLT_NEAR(x, y, abs_err)) {                                                          \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_NNEAR")                         \
+                <<  #x" == "#y"\n";                                                                 \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_CSTR_EQ(x, y)                                                                     \
+    do {                                                                                            \
+        if ((x) == nullptr && (y) == nullptr) {                                                     \
+            on_assert_success(std::cout);                                                           \
+        } else {                                                                                    \
+            if ((x) == nullptr) {                                                                   \
+                on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_EQ")                   \
+                    << #x" is NULL while y not\n";                                                  \
+            } else if ((y) == nullptr) {                                                            \
+                on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_EQ")                   \
+                    << #y" is NULL while x not\n";                                                  \
+            } else {                                                                                \
+                size_t i = 0;                                                                       \
+                bool failed = false;                                                                \
+                while (!failed && (x)[i] && (y)[i]) {                                               \
+                    if ((x)[i] != (y)[i]) {                                                         \
+                        failed = true;                                                              \
+                        on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_EQ")           \
+                            << #x" != "#y", the first not equal occurred at " << #x"[" << i         \
+                            << "](" << (x)[i] << ") != " << #y"[" << i << "](" << (y)[i] << ")\n";  \
+                    }                                                                               \
+                    ++i;                                                                            \
+                }                                                                                   \
+                if (!failed) {                                                                      \
+                    if ((x)[i] == '\0' && (y)[i] == '\0') {                                         \
+                        on_assert_success(std::cout);                                               \
+                    } else {                                                                        \
+                        on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_EQ")           \
+                            << #x" and "#y" has different length\n";                                \
+                    }                                                                               \
+                }                                                                                   \
+            }                                                                                       \
+        }                                                                                           \
+    } while (0)
+
+#define SB_ASSERT_CSTR_NE(x, y)                                                                     \
+    do {                                                                                            \
+        if ((x) == nullptr && (y) == nullptr) {                                                     \
+            on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_NE")                       \
+                << "both "#x" and "#y" are NULL\n";                                                 \
+        } else {                                                                                    \
+            if ((x) == nullptr || (y) == nullptr) {                                                 \
+                on_assert_success(std::cout);                                                       \
+            } else {                                                                                \
+                size_t i = 0;                                                                       \
+                bool success = false;                                                               \
+                while (!success && (x)[i] && (y)[i]) {                                              \
+                    if ((x)[i] != (y)[i]) {                                                         \
+                        success = true;                                                             \
+                        on_assert_success(std::cout);                                               \
+                    }                                                                               \
+                    ++i;                                                                            \
+                }                                                                                   \
+                if (!success) {                                                                     \
+                    if ((x)[i] == '\0' && (y)[i] == '\0') {                                         \
+                        on_assert_failed(std::cout, __FILE__, __LINE__, "ASSERT_CSTR_NE")           \
+                            << #x" == "#y"\n";                                                      \
+                    } else {                                                                        \
+                        on_assert_success(std::cout);                                               \
+                    }                                                                               \
+                }                                                                                   \
+            }                                                                                       \
+        }                                                                                           \
+    } while (0)
+
+#define SB_CASE(module, name)                                                                       \
+    struct SBTestingCase##module##name : public sb::BaseTestingCase                                 \
+    {                                                                                               \
+        SBTestingCase##module##name() : sb::BaseTestingCase(#module, #name) {}                      \
+        virtual void body() override;                                                               \
+    };                                                                                              \
+    static SBTestingCase##module##name SbTestingCase##_##module##_##name;                           \
+    void SBTestingCase##module##name::body()
 } // namespace sb
 
 #endif // SB_HPP_
@@ -99,11 +410,33 @@ Entity create_exe(const std::string& name);
 #   include <mach-o/dyld.h>
 #endif
 
+#ifdef SB_TESTING_MAIN
+#define SB_IMPLEMENTATION
+
+int main(int argc, char **argv)
+{
+    for (sb::BaseTestingCase* c : sb::TestingCases::instance()->cases()) {
+        c->body();
+    }
+    return 0;
+}
+
+#endif // SB_TESTING_MAIN
+
 namespace sb
 {
 
 #define SB_SEC_TO_NS        (1000 * 1000 * 1000)
 #define TIMESPEC_TO_NS(ts)  ((ts).tv_nsec + (ts).tv_sec * SB_SEC_TO_NS)
+
+#define SB_TERM_COLOR_B_RED_S    "\033[31m"
+#define SB_TERM_COLOR_B_GREEN_S  "\033[32m"
+#define SB_TERM_COLOR_B_WHITE_S  "\033[1;37m"
+#define SB_TERM_COLOR_E          "\033[0m"
+#define SB_TERM_COLOR_SUCC_S     SB_TERM_COLOR_B_GREEN_S
+#define SB_TERM_COLOR_FAIL_S     SB_TERM_COLOR_B_RED_S
+#define SB_TERM_COLOR_HL_S       SB_TERM_COLOR_B_WHITE_S
+
 
 #ifdef __APPLE__
 #   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtimespec)
@@ -125,7 +458,7 @@ private:
 }; // class Object
 
 std::string sb_dir();
-bool mkdir(const std::string &dir);
+bool mkdir_if_not_exists(const std::string &dir);
 int copy_file(const char *src, const char *dest);
 bool should_compile(const std::string& src, const std::string& target);
 void print_command(const std::vector<std::string>& cmds);
@@ -438,7 +771,7 @@ Entity& Entity::build()
         if (should_build || should_compile(obj.path, path_)) {
             should_build = true;
         }
-        cmd.push_back(obj.name);
+        cmd.push_back(obj.path);
     }
     for (const auto& f: flags_) {
         cmd.push_back(f);
@@ -460,6 +793,12 @@ int Entity::status() const
 {
     return status_;
 }
+
+const std::string& Entity::path() const
+{
+    return path_;
+}
+
 
 Entity& Entity::set_compiler(const std::string& compiler)
 {
@@ -527,13 +866,98 @@ int copy_file(const char *src, const char *dest) {
 
 void set_build_dir(const char* build_dir)
 {
-    default_build_dir__ = sb_dir() + build_dir + "/";
-    if (!mkdir(default_build_dir__)) {
+    default_build_dir__ = std::string(build_dir) + "/";
+    if (!mkdir_if_not_exists(default_build_dir__)) {
         abort();
     }
 }
 
-bool mkdir(const std::string &dir)
+BaseTestingCase::BaseTestingCase(const std::string& module, const std::string& name)
+    : __module(module)
+    , __name(name)
+    , __failed_assert(0)
+    , __success_assert(0)
+    , __padding_len(__module_name_len - name.length() - module.length())
+{
+    TestingCases::instance()->add_case(this);
+}
+
+std::ostream& BaseTestingCase::on_assert_success(std::ostream& os)
+{
+    ++__success_assert;
+    return os;
+}
+
+std::ostream& BaseTestingCase::on_assert_failed(std::ostream& os, const char *filename, int line,
+    const char *checking)
+{
+    ++__failed_assert;
+    os << ">> Case " << __module << '.' << __name << " failed on checking "
+       << SB_TERM_COLOR_HL_S << checking << SB_TERM_COLOR_E << ", "
+       << filename << ':' << line << '\n';
+    return os;
+}
+
+void BaseTestingCase::report(std::ostream& os) const
+{
+    if (__failed_assert == 0) {
+        os << SB_TERM_COLOR_SUCC_S << __module << '.' << __name << ' ';
+        for (int i = 0; i < __padding_len; ++i) {
+            os << '.';
+        }
+        os << " PASSED\n";
+    } else {
+        os << SB_TERM_COLOR_FAIL_S << __module << '.' << __name << ' ';
+        for (int i = 0; i < __padding_len; ++i) {
+            os << '.';
+        }
+        os << " FAILED\n";
+    }
+    os << SB_TERM_COLOR_E;
+}
+
+TestingCases* TestingCases::instance()
+{
+    static TestingCases *instance_ = nullptr;
+    static std::once_flag flag;
+    if (!instance_) {
+        std::call_once(flag, [&]() -> void {
+            instance_ = new (std::nothrow) TestingCases();
+        });
+    }
+    return instance_;
+}
+
+void TestingCases::add_case(BaseTestingCase* c)
+{
+    cases_.push_back(c);
+}
+
+const std::vector<BaseTestingCase*>& TestingCases::cases() const
+{
+    return cases_;
+}
+
+void TestingCases::report() const
+{
+    int passed_cnt = 0;
+    int failed_cnt = 0;
+    for (auto c : cases_) {
+        if (c->__failed_assert > 0) {
+            ++failed_cnt;
+        } else {
+            ++passed_cnt;
+        }
+    }
+
+    std::cout << "=============================\n";
+    std::cout << "    " << cases_.size() << " cases tested\n"
+              << "    " << passed_cnt << SB_TERM_COLOR_SUCC_S << " passed\n" << SB_TERM_COLOR_E
+              << "    " << failed_cnt << SB_TERM_COLOR_FAIL_S << " failed\n" << SB_TERM_COLOR_E;
+    std::cout << "=============================\n";
+}
+
+bool mkdir_if_not_exists(const std::string &dir)
 {
     const mode_t mode = 0755;
     struct stat st;

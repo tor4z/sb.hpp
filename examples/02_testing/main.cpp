@@ -1,4 +1,4 @@
-#define SB_IMPLEMENTATION
+#define SB_TESTING_MAIN
 #include "sb.hpp"
 
 SB_CASE(Test, hello)
@@ -30,15 +30,4 @@ SB_CASE(Test, hello)
 SB_CASE(Test, succ)
 {
     SB_ASSERT_EQ(1, 1);
-}
-
-
-int main(int argc, char **argv)
-{
-    for (sb::BaseTestingCase* c : sb::TestingCases::instance()->cases()) {
-        c->body();
-        c->report(std::cout);
-    }
-    sb::TestingCases::instance()->report();
-    return 0;
 }

@@ -111,14 +111,19 @@ class TestingCases
 {
 public:
     static TestingCases* instance();
-    const std::vector<BaseTestingCase*>& cases() const;
     void report() const;
+    void test_all();
+    int failed_cnt() const { return failed_cnt_; }
+    int passed_cnt() const { return passed_cnt_; }
 private:
     friend class BaseTestingCase;
+    const std::vector<BaseTestingCase*>& cases() const;
     void add_case(BaseTestingCase* c);
-    TestingCases() {}
+    TestingCases();
 
     std::vector<BaseTestingCase*> cases_;
+    int passed_cnt_;
+    int failed_cnt_;
 }; // class TestingCases
 
 
@@ -415,10 +420,9 @@ private:
 
 int main(int argc, char **argv)
 {
-    for (sb::BaseTestingCase* c : sb::TestingCases::instance()->cases()) {
-        c->body();
-    }
-    return 0;
+    sb::TestingCases::instance()->test_all();
+    sb::TestingCases::instance()->report();
+    return sb::TestingCases::instance()->failed_cnt();
 }
 
 #endif // SB_TESTING_MAIN
@@ -928,6 +932,11 @@ TestingCases* TestingCases::instance()
     return instance_;
 }
 
+TestingCases::TestingCases()
+    : passed_cnt_(0)
+    , failed_cnt_(0)
+{}
+
 void TestingCases::add_case(BaseTestingCase* c)
 {
     cases_.push_back(c);
@@ -938,22 +947,26 @@ const std::vector<BaseTestingCase*>& TestingCases::cases() const
     return cases_;
 }
 
-void TestingCases::report() const
+void TestingCases::test_all()
 {
-    int passed_cnt = 0;
-    int failed_cnt = 0;
-    for (auto c : cases_) {
+    for (sb::BaseTestingCase* c : cases_) {
+        c->body();
+        c->report(std::cout);
+
         if (c->__failed_assert > 0) {
-            ++failed_cnt;
+            ++failed_cnt_;
         } else {
-            ++passed_cnt;
+            ++passed_cnt_;
         }
     }
+}
 
+void TestingCases::report() const
+{
     std::cout << "=============================\n";
     std::cout << "    " << cases_.size() << " cases tested\n"
-              << "    " << passed_cnt << SB_TERM_COLOR_SUCC_S << " passed\n" << SB_TERM_COLOR_E
-              << "    " << failed_cnt << SB_TERM_COLOR_FAIL_S << " failed\n" << SB_TERM_COLOR_E;
+              << "    " << passed_cnt_ << SB_TERM_COLOR_SUCC_S << " passed\n" << SB_TERM_COLOR_E
+              << "    " << failed_cnt_ << SB_TERM_COLOR_FAIL_S << " failed\n" << SB_TERM_COLOR_E;
     std::cout << "=============================\n";
 }
 

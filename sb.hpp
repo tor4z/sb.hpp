@@ -1,10 +1,17 @@
 #ifndef SB_HPP_
 #define SB_HPP_
 
+#include <cstddef>
+#include <cstring>
 #include <ostream>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <iostream>
+
+#ifndef SB_MAX_ARGS
+#   define SB_MAX_ARGS 64
+#endif // SB_MAX_ARGS
 
 namespace sb
 {
@@ -83,6 +90,77 @@ Entity create_exe(const std::string& name);
 
 #define auto_rebuild_self(argc, argv) auto_rebuild_self__(argc, argv, __FILE__)
 
+// ------------ flags ------------
+
+template<typename T, typename U>
+struct same_type
+{
+    static const bool value = false;
+}; // struct same_type<T, U>
+
+template<typename T>
+struct same_type<T, T>
+{
+    static const bool value = true;
+}; // struct same_type<T, U>
+
+class ArgParser
+{
+    enum SchemeType
+    {
+        ST_UNKNOWN = 0,
+        ST_STR,
+        ST_INT,
+        ST_FLOAT,
+        ST_BOOL,
+        ST_VSTR,
+        ST_VINT,
+        ST_VFLOAT,
+    };
+    struct Scheme
+    {
+        Scheme();
+        ~Scheme();
+
+        union
+        {
+            std::string str;
+            int i;
+            float f;
+            bool b;
+            std::vector<std::string> vstr;
+            std::vector<int> vi;
+            std::vector<float> vf;
+            std::vector<bool> vb;
+        };
+        SchemeType type;
+        const char* key;
+        const char* help;
+    }; // struct Scheme
+
+    template<typename T>
+    friend T& flags_arg(const char *key, T default_val, const char *help);
+    friend bool flags_parse(int argc, char **argv);
+    friend void flags_show_usage();
+
+    static ArgParser* instance();
+    Scheme& add_scheme(const char *key, const char *help);
+    ArgParser();
+    const char* self_anme_;
+    Scheme scheme_list_[SB_MAX_ARGS];
+    int scheme_idx_;
+}; // class ArgParser
+
+template<typename T>
+T& flags_arg(const char *key, T default_val, const char *help)
+{
+    std::cout << "Unknoen type\n";
+    return T();
+}
+
+bool flags_parse(int argc, char **argv);
+void flags_show_usage();
+    
 // -------- Unit testing ---------
 
 struct BaseTestingCase
@@ -404,12 +482,13 @@ private:
 
 #ifdef SB_IMPLEMENTATION
 
-#include <unistd.h>
+#include <iostream>
 #include <stdint.h>
+#include <unistd.h>
+#include <stdarg.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <stdarg.h>
-#include <iostream>
 
 #ifdef __APPLE__
 #   include <mach-o/dyld.h>
@@ -468,6 +547,7 @@ bool should_compile(const std::string& src, const std::string& target);
 void print_command(const std::vector<std::string>& cmds);
 std::vector<std::string> split_string(const char* str);
 std::vector<std::string> split_string(const std::string_view& str);
+std::vector<std::string> str_split_with_comma(const char* str);
 std::string trim_right(const std::string& str);
 std::string trim_left(const std::string& str);
 std::string trim(const std::string& str);
@@ -874,6 +954,280 @@ void set_build_dir(const char* build_dir)
     if (!mkdir_if_not_exists(default_build_dir__)) {
         abort();
     }
+}
+
+ArgParser* ArgParser::instance()
+{
+    static ArgParser *instance_ = nullptr;
+    static std::once_flag flag;
+    if (!instance_) {
+        std::call_once(flag, [&]() -> void {
+            instance_ = new (std::nothrow) ArgParser();
+        });
+    }
+    return instance_;
+}
+
+ArgParser::ArgParser()
+    : self_anme_(nullptr)
+    , scheme_idx_(0)
+{}
+
+ArgParser::Scheme::Scheme()
+    : type(ST_UNKNOWN)
+{}
+
+ArgParser::Scheme::~Scheme()
+{}
+
+ArgParser::Scheme& ArgParser::add_scheme(const char *key, const char *help)
+{
+    if (scheme_idx_ >= SB_MAX_ARGS) {
+        std::cout << "tooo much args to parse\n";
+        abort();
+    }
+    ArgParser::Scheme& scheme = scheme_list_[scheme_idx_++];
+    scheme.help = help;
+    scheme.key = key;
+    return scheme;
+}
+
+std::vector<std::string> str_split_with_comma(const char* str)
+{
+    std::vector<std::string> output;
+    if (str) {
+        output.push_back(std::string());
+        while (*str) {
+            if (*str != ',') {
+                output.back().push_back(*str);
+            } else {
+                output.push_back(std::string());
+            }
+            ++str;
+        }
+    }
+    return output;
+}
+
+bool flags_parse(int argc, char **argv)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    if (argc < 1) {
+        return false;
+    }
+
+    for (int i = 0; i < argc; ++i) {
+        const char* this_arg = argv[i];
+        bool arg_matched = false;
+        if(i == 0) {
+            arg_parser->self_anme_ = this_arg;
+            continue;
+        }
+
+        for (int j = 0; j < arg_parser->scheme_idx_ && !arg_matched; ++j) {
+            ArgParser::Scheme& scheme = arg_parser->scheme_list_[j];
+            if (strcmp(scheme.key, this_arg) == 0) {
+                arg_matched = true;
+                const char* next_arg = i < argc ? argv[i + 1] : nullptr;
+                switch (scheme.type) {
+                case ArgParser::ST_STR:
+                    if (!next_arg) return false;
+                    scheme.str = next_arg;
+                    ++i;
+                    break;
+                case ArgParser::ST_INT:
+                    if (!next_arg) return false;
+                    scheme.i = std::stoi(next_arg);
+                    ++i;
+                    break;
+                case ArgParser::ST_FLOAT:
+                    if (!next_arg) return false;
+                    scheme.f = std::stof(next_arg);
+                    ++i;
+                    break;
+                case ArgParser::ST_BOOL:
+                    if (!next_arg || strcmp(next_arg, "true") == 0) {
+                        scheme.b = true;
+                        ++i;
+                    } else if (next_arg && strcmp(next_arg, "false") == 0) {
+                        scheme.b = false;
+                        ++i;
+                    } else {
+                        scheme.b = true;
+                    }
+                    break;
+                case ArgParser::ST_VSTR: {
+                    if (!next_arg) return false;
+                    scheme.vstr.clear();
+                    scheme.vstr = str_split_with_comma(next_arg);
+                    ++i;
+                } break;
+                case ArgParser::ST_VINT: {
+                    if (!next_arg) return false;
+                    std::vector<std::string> vstr = str_split_with_comma(next_arg);
+                    scheme.vi.clear();
+                    for (const auto s : vstr) {
+                        if (!s.empty()) {
+                            scheme.vi.push_back(std::stoi(s));
+                        } else {
+                            return false;
+                        }
+                    }
+                    ++i;
+                } break;
+                case ArgParser::ST_VFLOAT: {
+                    if (!next_arg) return false;
+                    std::vector<std::string> vstr = str_split_with_comma(next_arg);
+                    scheme.vf.clear();
+                    for (const auto s : vstr) {
+                        if (!s.empty()) {
+                            scheme.vf.push_back(std::stof(s));
+                        } else {
+                            return false;
+                        }
+                    }
+                    ++i;
+                } break;
+                case ArgParser::ST_UNKNOWN:
+                default:
+                    std::cout << "Unknown argument type for " << this_arg << "\n";
+                    return false;
+                }
+                continue;
+            }
+        }
+        if (!arg_matched) {
+            std::cout << "Unknown argument: " << this_arg << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+template<>
+bool& flags_arg<bool>(const char *key, bool default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.b = default_val;
+    scheme.type = ArgParser::ST_BOOL;
+    return scheme.b;
+}
+
+template<>
+int& flags_arg<int>(const char *key, int default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.i = default_val;
+    scheme.type = ArgParser::ST_INT;
+    return scheme.i;
+}
+
+template<>
+float& flags_arg<float>(const char *key, float default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.f = default_val;
+    scheme.type = ArgParser::ST_FLOAT;
+    return scheme.f;
+}
+
+template<>
+std::string& flags_arg<std::string>(const char *key, std::string default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.str = default_val;
+    scheme.type = ArgParser::ST_STR;
+    return scheme.str;
+}
+
+template<>
+std::vector<std::string>& flags_arg<std::vector<std::string>>(const char *key, std::vector<std::string> default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.vstr = default_val;
+    scheme.type = ArgParser::ST_VSTR;
+    return scheme.vstr;
+}
+
+template<>
+std::vector<int>& flags_arg<std::vector<int>>(const char *key, std::vector<int> default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.vi = default_val;
+    scheme.type = ArgParser::ST_VINT;
+    return scheme.vi;
+}
+
+template<>
+std::vector<float>& flags_arg<std::vector<float>>(const char *key, std::vector<float> default_val, const char *help)
+{
+    ArgParser* arg_parser = ArgParser::instance();
+    ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
+    scheme.vf = default_val;
+    scheme.type = ArgParser::ST_VFLOAT;
+    return scheme.vf;
+}
+
+void flags_show_usage()
+{
+    const int help_align_len = 32;
+
+    ArgParser* arg_parser = ArgParser::instance();
+    std::cout << "Usage for " << arg_parser->self_anme_ << "\n";
+    std::string help_line;
+    help_line.reserve(64);
+
+    for (int i = 0; i < arg_parser->scheme_idx_; ++i) {
+        const auto& scheme = arg_parser->scheme_list_[i];
+        help_line += "  ";
+        help_line += scheme.key;
+        help_line += ' ';
+
+        switch (scheme.type) {
+        case ArgParser::ST_STR:
+            help_line += "<strint>";
+            break;
+        case ArgParser::ST_INT:
+            help_line += "<int>";
+            break;
+        case ArgParser::ST_FLOAT:
+            help_line += "<float>";
+            break;
+        case ArgParser::ST_BOOL:
+            help_line += "<[true|false]>";
+            break;
+        case ArgParser::ST_VSTR:
+            help_line += "<strint,string,...>";
+            break;
+        case ArgParser::ST_VINT:
+            help_line += "<int,int,...>";
+            break;
+        case ArgParser::ST_VFLOAT:
+            help_line += "<float,float,...>";
+            break;
+        default:
+            break;
+        }
+
+        std::cout << help_line;
+        int help_line_len = help_line.length();
+        if (help_line_len > help_align_len) {
+            std::cout << "\n";
+            help_line_len = 0;
+        }
+        for (int j = 0; j < help_align_len - help_line_len; ++j) {
+            std::cout << ' ';
+        }
+        std::cout << scheme.help << "\n";
+        help_line.clear();
+    }
+    std::cout << "\n";
 }
 
 BaseTestingCase::BaseTestingCase(const std::string& module, const std::string& name)

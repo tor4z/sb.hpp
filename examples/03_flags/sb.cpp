@@ -13,8 +13,8 @@ int main(int argc, char **argv)
     auto& run = sb::flags_arg("-run", false, "run the program when build is success");
     auto& jobs = sb::flags_arg("-j", 1, "num jobs to build");
     auto& vstr = sb::flags_arg("-vstr", std::vector<std::string>{}, "string list");
-    auto& vi = sb::flags_arg("-vi", std::vector<int>{}, "string list");
-    auto& vf = sb::flags_arg("-vf", std::vector<float>{}, "string list");
+    auto& vi = sb::flags_arg("-vi", std::vector<int>{}, "int list");
+    auto& vf = sb::flags_arg("-vf", std::vector<float>{}, "float list");
     auto& help = sb::flags_arg("--help", false, "Show this help info");
     if (!sb::flags_parse(argc, argv) || help) {
         sb::flags_show_usage();
@@ -25,7 +25,7 @@ int main(int argc, char **argv)
     std::cout << "rebuild: " << rebuild << "\n";
     std::cout << "jobs: " << jobs << "\n";
     std::cout << "--help: " << help << "\n";
-    std::cout << "-vsr: ";
+    std::cout << "-vstr: ";
     for (const auto& s : vstr) {
         std::cout << s << " ";
     }

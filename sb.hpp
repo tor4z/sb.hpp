@@ -1191,7 +1191,7 @@ void flags_show_usage()
 
         switch (scheme.type) {
         case ArgParser::ST_STR:
-            help_line += "<strint>";
+            help_line += "<str>";
             break;
         case ArgParser::ST_INT:
             help_line += "<int>";
@@ -1203,13 +1203,13 @@ void flags_show_usage()
             help_line += "<[true|false]>";
             break;
         case ArgParser::ST_VSTR:
-            help_line += "<strint,string,...>";
+            help_line += "<str,str,..>";
             break;
         case ArgParser::ST_VINT:
-            help_line += "<int,int,...>";
+            help_line += "<int,int,..>";
             break;
         case ArgParser::ST_VFLOAT:
-            help_line += "<float,float,...>";
+            help_line += "<float,float,..>";
             break;
         default:
             break;

@@ -1,12 +1,10 @@
 #ifndef SB_HPP_
 #define SB_HPP_
 
-#include <cstddef>
-#include <cstring>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <ostream>
 #include <iostream>
 
 #ifndef SB_MAX_ARGS

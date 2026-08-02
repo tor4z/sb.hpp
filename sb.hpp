@@ -1389,6 +1389,7 @@ std::vector<std::string> split_string(const char* str)
 
         switch (ch) {
         case ' ':
+        case '\n':
         case '\t':
             if (last != i) {
                 output.emplace_back(str + last, str + i);

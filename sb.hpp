@@ -647,7 +647,6 @@ int run_command(const std::vector<std::string>& cmd)
         }
         cmd_arr[cmd_argc] = cmd.at(i).c_str();
         ++cmd_argc;
-        std::cout << cmd.at(i) << " ";
     }
     cmd_arr[cmd_argc] = nullptr;
 

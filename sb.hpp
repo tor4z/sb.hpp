@@ -640,10 +640,16 @@ int run_command(const std::vector<std::string>& cmd)
     }
 
     const char* cmd_arr[cmd.size() + 1];
+    int cmd_argc = 0;
     for (size_t i = 0; i < cmd.size(); ++i) {
-        cmd_arr[i] = cmd.at(i).c_str();
+        if (cmd.at(i).empty()) {
+            continue;
+        }
+        cmd_arr[cmd_argc] = cmd.at(i).c_str();
+        ++cmd_argc;
+        std::cout << cmd.at(i) << " ";
     }
-    cmd_arr[cmd.size()] = nullptr;
+    cmd_arr[cmd_argc] = nullptr;
 
     pid_t pid = fork();
     if (pid < 0) {

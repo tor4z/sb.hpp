@@ -19,18 +19,17 @@ enum Lib
     STATIC,
 };
 
+const std::string TARGET{"@"};
 const std::vector<std::string> excluded_flags {
     "-o", "-c"
 };
 
-class Object;
 extern std::string default_compiler__;
 extern std::string build_dir__;
 
 class Entity
 {
 public:
-    Entity& set_build_dir(const std::string& build_dir);
     Entity& set_compiler(const std::string& compiler);
     Entity& add_srcs(const std::string& file);
     Entity& add_srcs(const std::vector<std::string>& files);
@@ -51,6 +50,7 @@ public:
     friend class Object;
     friend Entity create_lib(const std::string& name);
     friend Entity create_exe(const std::string& name);
+    friend Entity create_raw(const std::string& name);
 
     const std::string name;
 private:
@@ -58,16 +58,18 @@ private:
     {
         EXECUTABLE,
         LIBRARY,
+        RAW,
     }; // enum TargetType
 
     Entity(const std::string& name, TargetType tt);
     bool check_append_flag(const std::string& flag);
     bool check_append_obj(const std::string& src);
+    bool check_append_src(const std::string& src);
 
     std::vector<std::string> flags_;
-    std::vector<Object> objs_;
+    std::vector<Entity> objs_;
+    std::vector<std::string> srcs_;
     std::string compiler_;
-    std::string build_dir_;
     std::string path_;
     const TargetType tt_;
     bool always_build_;
@@ -82,8 +84,10 @@ int run_command(const char* first, ...);
 std::string shell(const std::vector<std::string>& cmds);
 std::string shell(const char* first, ...);
 std::string shell_s(const char* cmd_str);
+
 Entity create_lib(const std::string& name);
 Entity create_exe(const std::string& name);
+Entity create_raw(const std::string& name);
 
 #define auto_rebuild_self(argc, argv) auto_rebuild_self__(argc, argv, __FILE__)
 
@@ -475,6 +479,7 @@ private:
 
 #endif // SB_HPP_
 
+#define SB_IMPLEMENTATION
 #ifdef SB_IMPLEMENTATION
 
 #include <iostream>
@@ -521,19 +526,6 @@ namespace sb
 #else
 #   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtim)
 #endif
-
-class Object
-{
-public:
-    Object(const std::string& src, const Entity* entity);
-    int compile() const;
-
-    const std::string src;
-    const std::string name;
-    const std::string path;
-private:
-    const Entity* entity_;
-}; // class Object
 
 std::string sb_dir();
 bool mkdir_if_not_exists(const std::string &dir);
@@ -749,37 +741,9 @@ std::string shell_s(const char* cmd_str)
     return shell(split_string(cmd_str));
 }
 
-Object::Object(const std::string& src, const Entity* entity)
-    : entity_(entity)
-    , src(src)
-    , name(src + ".o")
-    , path(entity->build_dir_ + name)
-{}
-
-int Object::compile() const
-{
-    if (entity_->always_build_ || should_compile(src, path)) {
-        std::vector<std::string> cmd{};
-        cmd.push_back(entity_->compiler_);
-        cmd.push_back(src);
-        cmd.push_back("-c");
-        for (const auto& flag : entity_->flags_) {
-            cmd.push_back(flag);
-        }
-        cmd.push_back("-Wno-unused-command-line-argument");
-        cmd.push_back("-o");
-        cmd.push_back(path);
-
-        print_command(cmd);
-        return run_command(cmd);
-    }
-    return 0;
-}
-
 Entity::Entity(const std::string& name, TargetType tt)
     : compiler_(default_compiler__)
-    , build_dir_(default_build_dir__)
-    , path_(build_dir_ + name)
+    , path_(default_build_dir__ + name)
     , name(name)
     , tt_(tt)
     , always_build_(false)
@@ -796,16 +760,25 @@ Entity create_exe(const std::string& name)
     return Entity(name, Entity::EXECUTABLE);
 }
 
+Entity create_raw(const std::string& name)
+{
+    return Entity(name, Entity::RAW);
+}
+
 Entity& Entity::add_srcs(const std::string& file)
 {
-    check_append_obj(std::string(file));
+    if (tt_ == Entity::RAW) {
+        check_append_src(file);
+    } else {
+        check_append_obj(file);
+    }
     return *this;
 }
 
 Entity& Entity::add_srcs(const std::vector<std::string>& files)
 {
     for (const auto& file : files) {
-        check_append_obj(file);
+        add_srcs(file);
     }
     return *this;
 }
@@ -829,14 +802,14 @@ Entity& Entity::add_flags(const std::vector<std::string>& flags)
 template<typename... Args>
 Entity& Entity::add_srcs(const std::string& file, Args... args)
 {
-    check_append_obj(std::string(file));
+    add_srcs(file);
     return add_srcs(args...);
 }
 
 template<typename... Args>
 Entity& Entity::add_flags(const std::string& flag, Args... args)
 {
-    check_append_flag(std::string(flag));
+    check_append_flag(flag);
     return add_flags(args...);
 }
 
@@ -844,25 +817,41 @@ Entity& Entity::add_flags(const std::string& flag, Args... args)
 
 Entity& Entity::build()
 {   
+    bool should_build = always_build_;
     std::vector<std::string> cmd;
     cmd.push_back(compiler_);
-    bool should_build = always_build_;
-    for (const auto& obj : objs_) {
-        if (obj.compile() != 0) {
-            status_ = -1;
-            return *this;
+
+    if (tt_ != Entity::RAW) {
+        for (auto& obj : objs_) {
+            if (obj.build().status() != 0) {
+                status_ = -1;
+                return *this;
+            }
+            if (should_build || should_compile(obj.path(), path_)) {
+                should_build = true;
+            }
+            cmd.push_back(obj.path());
         }
-        if (should_build || should_compile(obj.path, path_)) {
-            should_build = true;
+
+        cmd.push_back("-o");
+        cmd.push_back(path_);
+    } else {
+        for (auto& src : srcs_) {
+            if (should_build || should_compile(src, path_)) {
+                should_build = true;
+            }
+            cmd.push_back(src);
         }
-        cmd.push_back(obj.path);
     }
+
     for (const auto& f: flags_) {
-        cmd.push_back(f);
+        if (f == TARGET) {
+            cmd.push_back(path_);
+        } else {
+            cmd.push_back(f);
+        }
     }
     cmd.push_back("-Wno-unused-command-line-argument");
-    cmd.push_back("-o");
-    cmd.push_back(path_);
 
     if (should_build) {
         print_command(cmd);
@@ -902,10 +891,12 @@ bool Entity::check_append_flag(const std::string& flag)
         return false;
     }
 
-    for (const auto& e_flag : excluded_flags) {
-        if (flag == e_flag) {
-            std::cerr << "Excluded compile flag `" << flag << "` found.";
-            return false;
+    if (tt_ != Entity::RAW) {
+        for (const auto& e_flag : excluded_flags) {
+            if (flag == e_flag) {
+                std::cerr << "Excluded compile flag `" << flag << "` found.\n";
+                return false;
+            }
         }
     }
 
@@ -915,14 +906,46 @@ bool Entity::check_append_flag(const std::string& flag)
 
 bool Entity::check_append_obj(const std::string& src)
 {
+    if (src.empty()) {
+        return false;
+    }
+
     for (const auto obj: objs_) {
-        if (src == obj.src) {
+        if (src == obj.srcs_.at(0)) {
             std::cerr << "Duplicated src file `" << src << "` found.";
             return false;
         }
     }
 
-    objs_.push_back(Object(src, this));
+    auto obj = create_raw(src + ".o");
+    obj.set_compiler(compiler_);
+    obj.add_flags("-o");
+    obj.add_flags(TARGET);
+    obj.add_flags("-c");
+    obj.add_srcs(src);
+    obj.always_build(always_build_);
+    for (const auto& flag : flags_) {
+        obj.add_flags(flag);
+    }
+
+    objs_.push_back(obj);
+    return true;
+}
+
+bool Entity::check_append_src(const std::string& src)
+{
+    if (src.empty()) {
+        return false;
+    }
+
+    for (const auto s: srcs_) {
+        if (src == s) {
+            std::cerr << "Duplicated src file `" << src << "` found.";
+            return false;
+        }
+    }
+
+    srcs_.push_back(src);
     return true;
 }
 

@@ -2,7 +2,6 @@
 #define SB_HPP_
 
 #include <string>
-#include <string_view>
 #include <vector>
 #include <ostream>
 #include <iostream>
@@ -33,9 +32,9 @@ class Entity
 public:
     Entity& set_build_dir(const std::string& build_dir);
     Entity& set_compiler(const std::string& compiler);
-    Entity& add_srcs(const std::string_view& file);
+    Entity& add_srcs(const std::string& file);
     Entity& add_srcs(const std::vector<std::string>& files);
-    Entity& add_flags(const std::string_view& flag);
+    Entity& add_flags(const std::string& flag);
     Entity& add_flags(const std::vector<std::string>& flags);
     Entity& always_build(bool sure = true);
     int status() const;
@@ -43,9 +42,9 @@ public:
 
 #if __cplusplus >= 201703L
     template<typename... Args>
-    Entity& add_srcs(const std::string_view& file, Args... args);
+    Entity& add_srcs(const std::string& file, Args... args);
     template<typename... Args>
-    Entity& add_flags(const std::string_view& flag, Args... args);
+    Entity& add_flags(const std::string& flag, Args... args);
 #endif //__cplusplus >= 201703L
     Entity& build();
 
@@ -476,8 +475,6 @@ private:
 
 #endif // SB_HPP_
 
-#define SB_IMPLEMENTATION
-
 #ifdef SB_IMPLEMENTATION
 
 #include <iostream>
@@ -544,7 +541,7 @@ int copy_file(const char *src, const char *dest);
 bool should_compile(const std::string& src, const std::string& target);
 void print_command(const std::vector<std::string>& cmds);
 std::vector<std::string> split_string(const char* str);
-std::vector<std::string> split_string(const std::string_view& str);
+std::vector<std::string> split_string(const std::string& str);
 std::vector<std::string> str_split_with_comma(const char* str);
 std::string trim_right(const std::string& str);
 std::string trim_left(const std::string& str);
@@ -799,7 +796,7 @@ Entity create_exe(const std::string& name)
     return Entity(name, Entity::EXECUTABLE);
 }
 
-Entity& Entity::add_srcs(const std::string_view& file)
+Entity& Entity::add_srcs(const std::string& file)
 {
     check_append_obj(std::string(file));
     return *this;
@@ -813,7 +810,7 @@ Entity& Entity::add_srcs(const std::vector<std::string>& files)
     return *this;
 }
 
-Entity& Entity::add_flags(const std::string_view& flag)
+Entity& Entity::add_flags(const std::string& flag)
 {
     const std::vector<std::string> flags = split_string(flag);
     return add_flags(flags);
@@ -830,14 +827,14 @@ Entity& Entity::add_flags(const std::vector<std::string>& flags)
 #if __cplusplus >= 201703L
 
 template<typename... Args>
-Entity& Entity::add_srcs(const std::string_view& file, Args... args)
+Entity& Entity::add_srcs(const std::string& file, Args... args)
 {
     check_append_obj(std::string(file));
     return add_srcs(args...);
 }
 
 template<typename... Args>
-Entity& Entity::add_flags(const std::string_view& flag, Args... args)
+Entity& Entity::add_flags(const std::string& flag, Args... args)
 {
     check_append_flag(std::string(flag));
     return add_flags(args...);
@@ -1434,7 +1431,7 @@ std::string sb_dir()
     return output.substr(0, last_slash + 1);
 }
 
-std::vector<std::string> split_string(const std::string_view& str)
+std::vector<std::string> split_string(const std::string& str)
 {
     return split_string(str.data());
 }

@@ -1,6 +1,7 @@
 #ifndef SB_HPP_
 #define SB_HPP_
 
+#include <cstring>
 #include <string>
 #include <vector>
 #include <ostream>
@@ -9,6 +10,8 @@
 #ifndef SB_MAX_ARGS
 #   define SB_MAX_ARGS 64
 #endif // SB_MAX_ARGS
+
+#define SB_TARGET "@"
 
 namespace sb
 {
@@ -19,7 +22,6 @@ enum Lib
     STATIC,
 };
 
-const std::string TARGET{"@"};
 const std::vector<std::string> excluded_flags {
     "-o", "-c"
 };
@@ -39,6 +41,7 @@ public:
     Entity& add_srcs(const std::string& file);
     Entity& add_srcs(const std::vector<std::string>& files);
     Entity& add_flags(const std::string& flag);
+    Entity& add_flags(const std::string& flag1, const std::string& flag2);
     Entity& add_flags(const std::vector<std::string>& flags);
     Entity& always_build(bool sure = true);
     int status() const;
@@ -802,6 +805,14 @@ Entity& Entity::add_flags(const std::string& flag)
     return add_flags(flags);
 }
 
+Entity& Entity::add_flags(const std::string& flag1, const std::string& flag2)
+{
+    const std::vector<std::string> flags1 = split_string(flag1);
+    const std::vector<std::string> flags2 = split_string(flag2);
+    add_flags(flags1);
+    return add_flags(flags2);
+}
+
 Entity& Entity::add_flags(const std::vector<std::string>& flags)
 {
     for (const auto& flag : flags) {
@@ -896,7 +907,6 @@ Entity& Entity::build()
 
         cmd.push_back("-o");
         cmd.push_back(path_);
-        cmd.push_back("-Wno-unused-command-line-argument");
     } break;
     case Entity::OBJECT: {
         cmd.push_back(compiler_);
@@ -906,7 +916,6 @@ Entity& Entity::build()
             }
             cmd.push_back(src);
         }
-        cmd.push_back("-Wno-unused-command-line-argument");
     } break;
     case Entity::PHONY: {
         should_build = true;
@@ -925,7 +934,7 @@ Entity& Entity::build()
     }
 
     for (const auto& f: flags_) {
-        if (f == TARGET) {
+        if (strcmp(f.c_str(), SB_TARGET) == 0) {
             cmd.push_back(path_);
         } else {
             cmd.push_back(f);
@@ -1004,8 +1013,9 @@ bool Entity::check_append_object_from_src(const std::string& src)
     auto obj = create_object(src + ".o");
     obj.set_compiler("");   // set compiler on build time
     obj.add_flags("-o");
-    obj.add_flags(TARGET);
+    obj.add_flags(SB_TARGET);
     obj.add_flags("-c");
+    obj.add_flags("-Wno-unused-command-line-argument");
     obj.add_srcs(src);
     obj.always_build(always_build_);
     for (const auto& flag : flags_) {

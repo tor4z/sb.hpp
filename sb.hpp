@@ -36,6 +36,8 @@ public:
     Entity& set_compiler(const std::string& compiler);
     Entity& add_deps(Entity& dep);
     Entity& add_deps(std::vector<Entity>& deps);
+    Entity& add_objs(Entity& obj);
+    Entity& add_objs(std::vector<Entity>& objs);
     Entity& add_deps(const std::string& dep);
     Entity& add_deps(std::vector<std::string>& deps);
     Entity& add_srcs(const std::string& file);
@@ -76,6 +78,7 @@ private:
 
     std::vector<std::string> flags_;
     std::vector<Entity> entity_deps_;
+    std::vector<Entity> objs_;
     std::vector<std::string> file_deps_;
     std::vector<std::string> srcs_;
     std::string compiler_;
@@ -821,6 +824,20 @@ Entity& Entity::add_flags(const std::vector<std::string>& flags)
     return *this;
 }
 
+Entity& Entity::add_objs(Entity& obj)
+{
+    objs_.push_back(obj);
+    return *this;
+}
+
+Entity& Entity::add_objs(std::vector<Entity>& objs)
+{
+    for (auto& obj : objs) {
+        add_objs(obj);
+    }
+    return *this;
+}
+
 Entity& Entity::add_deps(Entity& dep)
 {
     entity_deps_.push_back(dep);
@@ -880,6 +897,14 @@ Entity& Entity::build()
     bool should_build = always_build_;
     std::vector<std::string> cmd;
 
+    for (auto& dep : entity_deps_) {
+        if (dep.build().status() != 0) {
+            std::cerr << "Failed to build " << dep.name << "\n";
+            status_ = -1;
+            return *this;
+        }
+    }
+
     for (auto& dep : file_deps_) {
         if (should_build || should_compile(dep, path_)) {
             should_build = true;
@@ -889,20 +914,20 @@ Entity& Entity::build()
     switch (tt_) {
     case Entity::ELF: {
         cmd.push_back(linker_.empty() ? compiler_ : linker_);
-        for (auto& dep : entity_deps_) {
-            if (dep.compiler_.empty()) {
-                dep.set_compiler(compiler_);
+        for (auto& obj : objs_) {
+            if (obj.compiler_.empty()) {
+                obj.set_compiler(compiler_);
             }
 
-            if (dep.build().status() != 0) {
-                std::cerr << "Failed to build " << dep.name << "\n";
+            if (obj.build().status() != 0) {
+                std::cerr << "Failed to build " << obj.name << "\n";
                 status_ = -1;
                 return *this;
             }
-            if (should_build || should_compile(dep.path(), path_)) {
+            if (should_build || should_compile(obj.path(), path_)) {
                 should_build = true;
             }
-            cmd.push_back(dep.path());
+            cmd.push_back(obj.path());
         }
 
         cmd.push_back("-o");
@@ -920,13 +945,6 @@ Entity& Entity::build()
     case Entity::PHONY: {
         should_build = true;
         cmd.push_back(name);
-        for (auto& dep : entity_deps_) {
-            if (dep.build().status() != 0) {
-                std::cerr << "Failed to build " << dep.name << "\n";
-                status_ = -1;
-                return *this;
-            }
-        }
     } break;
     default:
         std::cout << "Unknown entity type: " << tt_ << "\n"; 
@@ -1022,7 +1040,7 @@ bool Entity::check_append_object_from_src(const std::string& src)
         obj.add_flags(flag);
     }
 
-    add_deps(obj);
+    add_objs(obj);
     return true;
 }
 

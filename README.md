@@ -1,4 +1,4 @@
-# sb.hpp -- a Simple Builder(SB)
+# sb.hpp -- a Simple c/c++ Builder(SB)
 
 ## Usage
 

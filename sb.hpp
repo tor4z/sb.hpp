@@ -1529,6 +1529,17 @@ std::vector<std::string> split_string(const char* str)
         }
 
         switch (ch) {
+        case '\'':
+        case '"': {
+            char match_target = ch;
+            int start = i + 1;
+            char next = str[++i];
+            while (next && next != match_target) {
+                next = str[++i];
+            }
+            output.emplace_back(str + start, str + i);
+            last = i + 1;
+        } break;
         case ' ':
         case '\n':
         case '\t':

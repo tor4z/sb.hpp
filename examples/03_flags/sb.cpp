@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         std::cout << s << " ";
     }
     std::cout << "\n";
-    // auto flags = sb::create_exe("flags")
+    // auto flags = sb::create_elf("flags")
     //     .add_srcs("main.cpp")
     //     .set_compiler("clang++")
     //     .always_build(rebuild)

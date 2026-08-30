@@ -7,7 +7,7 @@ int main(int argc, char **argv)
     sb::auto_rebuild_self(argc, argv);
     sb::set_build_dir("build");
 
-    auto testting = sb::create_exe("testing")
+    auto testting = sb::create_elf("testing")
         .add_srcs("main.cpp")
         .add_flags("-g")
         .set_compiler("clang++")

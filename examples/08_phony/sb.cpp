@@ -6,7 +6,7 @@ int main(int argc, char **argv)
 {
     sb::auto_rebuild_self(argc, argv);
 
-    auto exe = sb::create_exe("hello")
+    auto exe = sb::create_elf("hello")
         .add_srcs("main.c")
         .set_compiler("clang");
 

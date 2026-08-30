@@ -30,9 +30,12 @@ extern std::string build_dir__;
 class Entity
 {
 public:
+    Entity& set_linker(const std::string& linker);
     Entity& set_compiler(const std::string& compiler);
     Entity& add_deps(Entity& dep);
     Entity& add_deps(std::vector<Entity>& deps);
+    Entity& add_deps(const std::string& dep);
+    Entity& add_deps(std::vector<std::string>& deps);
     Entity& add_srcs(const std::string& file);
     Entity& add_srcs(const std::vector<std::string>& files);
     Entity& add_flags(const std::string& flag);
@@ -50,30 +53,30 @@ public:
     Entity& build();
 
     friend class Object;
-    friend Entity create_lib(const std::string& name);
-    friend Entity create_exe(const std::string& name);
-    friend Entity create_raw(const std::string& name);
+    friend Entity create_elf(const std::string& name);
+    friend Entity create_object(const std::string& name);
     friend Entity create_phony(const std::string& name);
 
     const std::string name;
 private:
     enum TargetType
     {
-        EXECUTABLE = 0,
-        LIBRARY,
-        RAW,
+        ELF = 0,
+        OBJECT,
         PHONY,
     }; // enum TargetType
 
     Entity(const std::string& name, TargetType tt);
     bool check_append_flag(const std::string& flag);
-    bool check_append_obj_from_src(const std::string& src);
+    bool check_append_object_from_src(const std::string& src);
     bool check_append_src(const std::string& src);
 
     std::vector<std::string> flags_;
-    std::vector<Entity> deps_;
+    std::vector<Entity> entity_deps_;
+    std::vector<std::string> file_deps_;
     std::vector<std::string> srcs_;
     std::string compiler_;
+    std::string linker_;
     std::string path_;
     const TargetType tt_;
     bool always_build_;
@@ -89,9 +92,8 @@ std::string shell(const std::vector<std::string>& cmds);
 std::string shell(const char* first, ...);
 std::string shell_s(const char* cmd_str);
 
-Entity create_lib(const std::string& name);
-Entity create_exe(const std::string& name);
-Entity create_raw(const std::string& name);
+Entity create_elf(const std::string& name);
+Entity create_object(const std::string& name);
 Entity create_phony(const std::string& command);
 
 #define auto_rebuild_self(argc, argv) auto_rebuild_self__(argc, argv, __FILE__)
@@ -748,26 +750,21 @@ std::string shell_s(const char* cmd_str)
 
 Entity::Entity(const std::string& name, TargetType tt)
     : compiler_(default_compiler__)
-    , path_(default_build_dir__ + name)
+    , path_(tt == Entity::PHONY ? "" : default_build_dir__ + name)
     , name(name)
     , tt_(tt)
     , always_build_(false)
     , status_(0)
 {}
 
-Entity create_lib(const std::string& name)
+Entity create_elf(const std::string& name)
 {
-    return Entity(name, Entity::LIBRARY);
+    return Entity(name, Entity::ELF);
 }
 
-Entity create_exe(const std::string& name)
+Entity create_object(const std::string& name)
 {
-    return Entity(name, Entity::EXECUTABLE);
-}
-
-Entity create_raw(const std::string& name)
-{
-    return Entity(name, Entity::RAW);
+    return Entity(name, Entity::OBJECT);
 }
 
 Entity create_phony(const std::string& command)
@@ -778,12 +775,11 @@ Entity create_phony(const std::string& command)
 Entity& Entity::add_srcs(const std::string& file)
 {
     switch (tt_) {
-    case Entity::RAW:
+    case Entity::OBJECT:
         check_append_src(file);
         break;
-    case Entity::EXECUTABLE:
-    case Entity::LIBRARY:
-        check_append_obj_from_src(file);
+    case Entity::ELF:
+        check_append_object_from_src(file);
         break;
     default:
         std::cerr << "Ignore add file `" << file << "` for entity type: " << tt_ << "\n";
@@ -816,13 +812,35 @@ Entity& Entity::add_flags(const std::vector<std::string>& flags)
 
 Entity& Entity::add_deps(Entity& dep)
 {
-    deps_.push_back(dep);
+    entity_deps_.push_back(dep);
     return *this;
 }
 
 Entity& Entity::add_deps(std::vector<Entity>& deps)
 {
-    for (auto& dep : deps_) {
+    for (auto& dep : deps) {
+        add_deps(dep);
+    }
+    return *this;
+}
+
+Entity& Entity::add_deps(const std::string& dep)
+{
+    if (!dep.empty()) {
+        struct stat st;
+        if (stat(dep.c_str(), &st) == 0) {
+            file_deps_.push_back(dep);
+        } else {
+            std::cerr << "File " << dep << " not found\n";
+        }
+    }
+
+    return *this;
+}
+
+Entity& Entity::add_deps(std::vector<std::string>& deps)
+{
+    for (auto& dep : deps) {
         add_deps(dep);
     }
     return *this;
@@ -851,12 +869,20 @@ Entity& Entity::build()
     bool should_build = always_build_;
     std::vector<std::string> cmd;
 
+    for (auto& dep : file_deps_) {
+        if (should_build || should_compile(dep, path_)) {
+            should_build = true;
+        }        
+    }
+
     switch (tt_) {
-    case Entity::EXECUTABLE:
-    case Entity::LIBRARY: {
-        cmd.push_back(compiler_);
-        for (auto& dep : deps_) {
-            dep.set_compiler(compiler_);
+    case Entity::ELF: {
+        cmd.push_back(linker_.empty() ? compiler_ : linker_);
+        for (auto& dep : entity_deps_) {
+            if (dep.compiler_.empty()) {
+                dep.set_compiler(compiler_);
+            }
+
             if (dep.build().status() != 0) {
                 std::cerr << "Failed to build " << dep.name << "\n";
                 status_ = -1;
@@ -872,7 +898,7 @@ Entity& Entity::build()
         cmd.push_back(path_);
         cmd.push_back("-Wno-unused-command-line-argument");
     } break;
-    case Entity::RAW: {
+    case Entity::OBJECT: {
         cmd.push_back(compiler_);
         for (auto& src : srcs_) {
             if (should_build || should_compile(src, path_)) {
@@ -885,7 +911,7 @@ Entity& Entity::build()
     case Entity::PHONY: {
         should_build = true;
         cmd.push_back(name);
-        for (auto& dep : deps_) {
+        for (auto& dep : entity_deps_) {
             if (dep.build().status() != 0) {
                 std::cerr << "Failed to build " << dep.name << "\n";
                 status_ = -1;
@@ -925,6 +951,11 @@ const std::string& Entity::path() const
     return path_;
 }
 
+Entity& Entity::set_linker(const std::string& linker)
+{
+    linker_ = linker;
+    return *this;
+}
 
 Entity& Entity::set_compiler(const std::string& compiler)
 {
@@ -944,7 +975,7 @@ bool Entity::check_append_flag(const std::string& flag)
         return false;
     }
 
-    if (tt_ == Entity::LIBRARY || tt_ == Entity::EXECUTABLE) {
+    if (tt_ == Entity::ELF) {
         for (const auto& e_flag : excluded_flags) {
             if (flag == e_flag) {
                 std::cerr << "Excluded compile flag `" << flag << "` found.\n";
@@ -957,21 +988,21 @@ bool Entity::check_append_flag(const std::string& flag)
     return true;
 }
 
-bool Entity::check_append_obj_from_src(const std::string& src)
+bool Entity::check_append_object_from_src(const std::string& src)
 {
     if (src.empty()) {
         return false;
     }
 
-    for (const auto dep: deps_) {
+    for (const auto dep: entity_deps_) {
         if (src == dep.srcs_.at(0)) {
             std::cerr << "Duplicated src file `" << src << "` found.";
             return false;
         }
     }
 
-    auto obj = create_raw(src + ".o");
-    obj.set_compiler(compiler_);
+    auto obj = create_object(src + ".o");
+    obj.set_compiler("");   // set compiler on build time
     obj.add_flags("-o");
     obj.add_flags(TARGET);
     obj.add_flags("-c");
@@ -1433,7 +1464,11 @@ void print_command(const std::vector<std::string>& cmd)
 
 bool should_compile(const std::string& src, const std::string& target)
 {
-   bool result = true;
+    if (target.empty()) {
+        return true;
+    }
+
+    bool result = true;
     struct stat st;
     if (stat(src.c_str(), &st) == 0) {
         uint64_t src_mtime = FILE_MTIME_NS(st);

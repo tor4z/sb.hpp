@@ -492,7 +492,7 @@ private:
 
 #endif // SB_HPP_
 
-#define SB_IMPLEMENTATION
+// #define SB_IMPLEMENTATION
 #ifdef SB_IMPLEMENTATION
 
 #include <iostream>
@@ -551,6 +551,8 @@ std::vector<std::string> str_split_with_comma(const char* str);
 std::string trim_right(const std::string& str);
 std::string trim_left(const std::string& str);
 std::string trim(const std::string& str);
+std::string path_join(const std::string& parent, const std::string& child);
+std::string path_dirname(const std::string& path);
 
 std::string default_compiler__ = "c++";
 std::string default_cxx_compiler__ = "c++";
@@ -756,12 +758,17 @@ std::string shell_s(const char* cmd_str)
 
 Entity::Entity(const std::string& name, TargetType tt)
     : compiler_(default_compiler__)
-    , path_(tt == Entity::PHONY ? "" : default_build_dir__ + name)
+    , path_(tt == Entity::PHONY ? "" : path_join(default_build_dir__, name))
     , name(name)
     , tt_(tt)
     , always_build_(false)
     , status_(0)
-{}
+{
+    auto dirname = path_dirname(path_);
+    if (!mkdir_if_not_exists(dirname)) {
+        std::cerr << "Can not create dir: " << dirname << "\n";
+    }
+}
 
 Entity create_elf(const std::string& name)
 {
@@ -917,6 +924,9 @@ Entity& Entity::build()
         for (auto& obj : objs_) {
             if (obj.compiler_.empty()) {
                 obj.set_compiler(compiler_);
+                for (const auto& flag : flags_) {
+                    obj.add_flags(flag);
+                }
             }
 
             if (obj.build().status() != 0) {
@@ -1036,9 +1046,6 @@ bool Entity::check_append_object_from_src(const std::string& src)
     obj.add_flags("-Wno-unused-command-line-argument");
     obj.add_srcs(src);
     obj.always_build(always_build_);
-    for (const auto& flag : flags_) {
-        obj.add_flags(flag);
-    }
 
     add_objs(obj);
     return true;
@@ -1468,7 +1475,7 @@ bool mkdir_if_not_exists(const std::string &dir)
         char ch = dir.at(i);
         buff[i] = ch;
         buff[i + 1] = '\0';
-        if (ch == '/') {
+        if (ch == '/' || i == dir.length() - 1) {
             if(stat(buff, &st) != 0) {
                 if (::mkdir(buff, mode) != 0) {
                     return false;
@@ -1601,6 +1608,29 @@ std::string trim_right(const std::string& str)
 std::string trim(const std::string& str)
 {
     return trim_left(trim_right(str));
+}
+
+std::string path_join(const std::string& parent, const std::string& child)
+{
+    if (parent.empty()) {
+        return child;
+    }
+
+    if (child.empty()) {
+        return parent;
+    }
+
+    if (*parent.crbegin() == '/') {
+        return parent + child;
+    } else {
+        return parent + "/" + child;
+    }
+}
+
+std::string path_dirname(const std::string& path)
+{
+    auto pos = path.rfind("/");
+    return path.substr(0, pos);
 }
 
 } // namespace sb

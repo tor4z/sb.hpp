@@ -492,6 +492,18 @@ private:
 
 #endif // SB_HPP_
 
+#ifdef SB_TESTING_MAIN
+#define SB_IMPLEMENTATION
+
+int main(int argc, char **argv)
+{
+    sb::TestingCases::instance()->test_all();
+    sb::TestingCases::instance()->report();
+    return sb::TestingCases::instance()->failed_cnt();
+}
+
+#endif // SB_TESTING_MAIN
+
 // #define SB_IMPLEMENTATION
 #ifdef SB_IMPLEMENTATION
 
@@ -506,18 +518,6 @@ private:
 #ifdef __APPLE__
 #   include <mach-o/dyld.h>
 #endif
-
-#ifdef SB_TESTING_MAIN
-#define SB_IMPLEMENTATION
-
-int main(int argc, char **argv)
-{
-    sb::TestingCases::instance()->test_all();
-    sb::TestingCases::instance()->report();
-    return sb::TestingCases::instance()->failed_cnt();
-}
-
-#endif // SB_TESTING_MAIN
 
 namespace sb
 {

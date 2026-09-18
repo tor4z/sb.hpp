@@ -16,12 +16,6 @@
 namespace sb
 {
 
-enum Lib
-{
-    DYNAMIC = 0,
-    STATIC,
-};
-
 const std::vector<std::string> excluded_flags {
     "-o", "-c"
 };
@@ -900,7 +894,7 @@ Entity& Entity::add_flags(const std::string& flag, Args... args)
 #endif //__cplusplus >= 201703L
 
 Entity& Entity::build()
-{   
+{
     bool should_build = always_build_;
     std::vector<std::string> cmd;
 
@@ -1515,7 +1509,7 @@ bool should_compile(const std::string& src, const std::string& target)
         }
     } else {
         std::cerr << "source file " << src << " not found\n";
-        return -1;
+        return false;
     }
     return result;
 }
@@ -1574,7 +1568,7 @@ std::string sb_dir()
 #else // __APPLE__
     const char *self_exe = "/proc/self/exe";
     len = readlink(self_exe, output.data(), len);
-    if (len >= sizeof(output.size())) {
+    if (len >= output.size()) {
         abort();
     }
 #endif // __APPLE__
@@ -1584,7 +1578,7 @@ std::string sb_dir()
         if (output.at(i) == '/') {
             last_slash = i;
         }
-    } 
+    }
     return output.substr(0, last_slash + 1);
 }
 

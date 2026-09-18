@@ -1,0 +1,1214 @@
+#ifndef SB_H_
+#define SB_H_
+
+#include <assert.h>
+#include <stdbool.h>
+
+#ifndef SB_MAX_ARGS
+#   define SB_MAX_ARGS 128
+#endif // SB_MAX_ARGS
+
+#define SB_TARGET "@"
+
+typedef enum SB_TargetType
+{
+    SB_ELF = 0,
+    SB_OBJECT,
+    SB_PHONY,
+} SB_TargetType; // enum SB_TargetType
+
+typedef struct SB_Target SB_Target;
+
+typedef struct SB_String {
+    char *str;
+    int count;
+    int capacity;
+} SB_String; // struct SB_String
+
+typedef struct SB_StringList {
+    SB_String *list;
+    int count;
+    int capacity;
+} SB_StringList; // struct SB_StringList
+
+typedef struct SB_TargetList {
+    SB_Target *list;
+    int count;
+    int capacity;
+} SB_TargetList; // struct SB_TargetList
+
+typedef struct SB_Target {
+    SB_String name;
+    SB_String path;
+    SB_String compiler;
+    SB_String linker;
+    SB_StringList srcs;
+    SB_StringList flags;
+    SB_TargetList deps;
+    SB_StringList dep_files;
+    SB_TargetList objs;
+    int status;
+    bool always_build;
+    SB_TargetType target_type;
+} SB_Target;
+
+void sb_set_build_dir(const char* dir);
+
+SB_Target sb_create_elf(const char *name);
+SB_Target sb_create_object(const char *name);
+SB_Target sb_create_phony(const char *name);
+
+bool sb_set_compiler(SB_Target *target, const char *compiler);
+bool sb_set_linker(SB_Target *target, const char *linker);
+
+bool sb_add_src(SB_Target *target, const char *src);
+bool sb_add_src_s(SB_Target *target, SB_String src);
+bool sb_add_srcs(SB_Target *target, SB_StringList srcs);
+bool sb_add_srcs_v(SB_Target *target, const char **srcs, int count);
+
+bool sb_add_flag(SB_Target *target, const char *flag);
+bool sb_add_flag_s(SB_Target *target, SB_String flag);
+bool sb_add_flags(SB_Target *target, SB_StringList flags);
+bool sb_add_flags_v(SB_Target *target, const char **flags, int count);
+
+bool sb_add_dep_file(SB_Target *target, const char *dep);
+bool sb_add_dep_file_s(SB_Target *target, SB_String dep);
+bool sb_add_dep_files(SB_Target *target, SB_StringList deps);
+bool sb_add_dep_files_v(SB_Target *target, const char **deps, int count);
+
+bool sb_add_dep(SB_Target *target, SB_Target dep);
+bool sb_add_deps(SB_Target *target, SB_TargetList deps);
+bool sb_add_deps_v(SB_Target *target, const SB_Target *deps, int count);
+
+bool sb_add_obj(SB_Target *target, SB_Target obj);
+bool sb_add_objs(SB_Target *target, SB_TargetList objs);
+bool sb_add_objs_v(SB_Target *target, const SB_Target *objs, int count);
+
+bool sb_always_build(SB_Target *target, bool sure);
+bool sb_build(SB_Target *target);
+
+int sb_command(const char *cmd_str);
+int sb_command_v(const char **cmd, int count);
+int sb_command_p(const char *first, ...);
+SB_String sb_shell(const char *cmd_str);
+SB_String sb_shell_v(const char **cmd, int count);
+
+#define sb_auto_rebuild_self(argc, argv) sb_auto_rebuild_self__(argc, argv, __FILE__)
+bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
+
+int sb_string_append_substr(SB_String *string, const char *start, const char *end);
+int sb_string_append_char(SB_String *string, char c);
+int sb_string_append_cstr(SB_String *string, const char *cstr);
+SB_String sb_string_move(SB_String *src);
+SB_String sb_string_copy(const SB_String *src);
+void sb_string_clean(SB_String *string);
+void sb_string_free(SB_String *string);
+bool sb_string_empty(const SB_String *string);
+
+#define SB_DA_APPEND(da, x)                                         \
+    do {                                                            \
+        if (!(da).list) {                                           \
+            /* init da */                                           \
+            (da).capacity = 8;                                      \
+            (da).list = malloc(sizeof(*(da).list) * (da).capacity); \
+        } else {                                                    \
+            if ((da).count == (da).capacity) {                      \
+                (da).capacity *= 2;                                 \
+                (da).list = realloc((da).list,                      \
+                    sizeof(*(da).list) * (da).capacity);            \
+            }                                                       \
+        }                                                           \
+        (da).list[(da).count] = x;                                  \
+        ++(da).count;                                               \
+    } while(0)
+
+#define SB_DA_RESET(da)                                             \
+    do {                                                            \
+        (da).count = 0;                                             \
+    } while(0)
+
+#define SB_DA_FREE(da)                                              \
+    do {                                                            \
+        if ((da).list) {                                            \
+            free((da.list));                                        \
+        }                                                           \
+        (da).list = NULL;                                           \
+        (da).count = 0;                                             \
+        (da).capacity = 0;                                          \
+    } while(0)
+
+#define SB_ARRAY_LEN(arr) (sizeof(arr) / sizeof(*(arr)))
+
+#endif // SB_H_
+
+
+#define SB_IMPLEMENTATION
+
+#ifdef SB_IMPLEMENTATION
+
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+
+#ifdef __APPLE__
+#   include <mach-o/dyld.h>
+#endif
+
+#define SB_SEC_TO_NS        (1000 * 1000 * 1000)
+#define TIMESPEC_TO_NS(ts)  ((ts).tv_nsec + (ts).tv_sec * SB_SEC_TO_NS)
+
+#ifdef __APPLE__
+#   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtimespec)
+#else
+#   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtim)
+#endif
+
+static const char *sb_build_dir__ = "./";
+static const char *sb_default_compiler__ = "cc";
+static const char *sb_excluded_flags[] = {
+    "-o", "-c"
+};
+
+const char *sb_dir();
+bool mkdir_if_not_exists(const char* dir);
+int copy_file(const char *src, const char *dest);
+SB_String *sb_string_trim_left(SB_String *str);
+SB_String *sb_string_trim_right(SB_String *str);
+SB_String *sb_string_trim(SB_String *str);
+SB_String sb_path_join(const char *parent, const char *child);
+SB_StringList sb_split_cstr(const char* str);
+bool sb_should_compile(const char *src, const char *target);
+void sb_print_command(const char **cmd, int count);
+
+bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
+{
+    if (!argv || argc == 0) {
+        fprintf(stderr, "Invalid argc argv.\n");
+        return false;
+    }
+
+    uint64_t bin_mtime;
+    uint64_t src_mtime;
+    struct stat st;
+
+    const char* tmp_suffix = ".tmp";
+    bool is_tmp = strstr(argv[0], tmp_suffix) != NULL;
+    char tmp_path[256];
+    strcpy(tmp_path, argv[0]);
+    strcat(tmp_path, tmp_suffix);
+    char sb_name[128];
+
+    strncpy(sb_name, argv[0], 128);
+    if (is_tmp) {
+        sb_name[strlen(argv[0]) - strlen(tmp_suffix)] = '\0';
+    }
+
+    if (stat(sb_name, &st) == 0) {
+        bin_mtime = FILE_MTIME_NS(st);
+    } else {
+        perror("Error bin file stats");
+        return false;
+    }
+
+    if (stat(src, &st) == 0) {
+        src_mtime = FILE_MTIME_NS(st);
+    } else {
+        perror("Error src file stats");
+        return false;
+    }
+
+    const char *cmd[SB_MAX_ARGS];
+    if (src_mtime > bin_mtime) {
+        // rebuild self
+        if (is_tmp) {
+            printf("Rebuilding self ..\n");
+            const char* tmp[] = {sb_default_compiler__, src, "-o", sb_name};
+            if (sb_command_v(tmp, (sizeof(tmp) / sizeof(*tmp))) == 0) {
+                cmd[0] = sb_name;
+                int i = 1;
+                for (; i < argc; ++i) {
+                    assert(i < SB_MAX_ARGS && "Command too much arguments");
+                    cmd[i] = argv[i];
+                }
+                exit(sb_command_v(cmd, i));
+            } else {
+                // restore sb file if compiling new sb failed
+                copy_file(tmp_path, sb_name);
+                remove(tmp_path);
+                exit(-1);
+            }
+        }
+        copy_file(argv[0], tmp_path);
+        if (chmod(tmp_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) != 0) {
+            perror("Failed to set executable permissions");
+            return false;
+        }
+        cmd[0] = tmp_path;
+        int i = 0;
+        for (i = 1; i < argc; ++i) {
+            assert(i < SB_MAX_ARGS && "Command too much arguments");
+            cmd[i] = argv[i];
+        }
+        exit(sb_command_v(cmd, i));
+    } else if (stat(tmp_path, &st) == 0) {
+        remove(tmp_path);
+    }
+    return true;
+}
+
+int sb_command_v(const char **cmd, int count)
+{
+    if (!cmd) {
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return -1;
+    }
+
+    int status = 0;
+    if (pid == 0) {
+        const char *buff[count + 1];
+        for (int i = 0; i < count; ++i) buff[i] = cmd[i];
+        buff[count] = NULL;
+        execvp(cmd[0], (char* const*)buff);
+        // only reach on error
+        perror("execvp:");
+    } else {
+        if (waitpid(pid, &status, 0) == -1) {
+            perror("waitpid");
+            return -1;
+        }
+    }
+
+    return status;
+}
+
+int sb_command(const char *cmd_str)
+{
+    SB_StringList string_list = sb_split_cstr(cmd_str);
+    const char *cmd[string_list.count];
+    for (int i = 0; i < string_list.count; ++i) {
+        cmd[i] = string_list.list[i].str;
+    }
+
+    int result = sb_command_v(cmd, string_list.count);
+    for (int i = 0; i < string_list.count; ++i) {
+        sb_string_free(&string_list.list[i]);
+    }
+    SB_DA_FREE(string_list);
+    return result;
+}
+
+int sb_command_p(const char *first, ...)
+{
+    const char *cmd[SB_MAX_ARGS];
+    int cmd_idx = 0;
+
+    va_list ap;
+    va_start(ap, first);
+        const char *p = first;
+        while (p) {
+            cmd[cmd_idx++] = p;
+            p = va_arg(ap, const char*);
+        }
+    va_end(ap);
+
+    return sb_command_v(cmd, cmd_idx);
+}
+
+SB_String sb_shell_v(const char **cmd, int count)
+{
+    int pipefd[2];
+    pid_t pid;
+    char buff[512];
+    ssize_t bytes_read;
+
+    SB_String output = {0};
+    // 1. Create the pipe
+    if (pipe(pipefd) == -1) {
+        perror("pipe");
+        return output;
+    }
+
+    // 2. Fork the process
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return output;
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]); 
+        dup2(pipefd[1], STDOUT_FILENO); 
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
+        const char *buff[count + 1];
+        for (int i = 0; i < count; ++i) buff[i] = cmd[i];
+        buff[count] = NULL;
+        execvp(cmd[0], (char* const*)buff);
+        perror("execvp");
+    } else {
+        close(pipefd[1]); 
+        while ((bytes_read = read(pipefd[0], buff, sizeof(buff) - 1)) > 0) {
+            sb_string_append_substr(&output, buff, buff + bytes_read);
+        }
+        close(pipefd[0]); 
+        int status;
+        waitpid(pid, &status, 0); 
+    }
+
+    sb_string_trim(&output);
+    return output;
+}
+
+SB_String sb_shell(const char *cmd_str)
+{
+    SB_StringList string_list = sb_split_cstr(cmd_str);
+    const char *cmd[string_list.count];
+    for (int i = 0; i < string_list.count; ++i) {
+        cmd[i] = string_list.list[i].str;
+    }
+
+    SB_String result = sb_shell_v(cmd, string_list.count);
+    for (int i = 0; i < string_list.count; ++i) {
+        sb_string_free(&string_list.list[i]);
+    }
+    SB_DA_FREE(string_list);
+    return result;
+}
+
+void sb_set_build_dir(const char* dir)
+{
+    static SB_String build_dir_string = {0};
+    sb_string_clean(&build_dir_string);
+    sb_string_append_cstr(&build_dir_string, dir);
+    if (build_dir_string.str[build_dir_string.count - 1] != '/') {
+        sb_string_append_char(&build_dir_string, '/');
+    }
+    sb_build_dir__ = build_dir_string.str;
+    if (!mkdir_if_not_exists(sb_build_dir__)) {
+        abort();
+    }
+}
+
+SB_Target sb_create_elf(const char *name)
+{
+    assert(name && strlen(name) > 0 && "Bad elf name");
+    SB_Target target = {0};
+    target.target_type = SB_ELF;
+    target.always_build = false;
+    sb_string_append_cstr(&target.name, name);
+    sb_string_clean(&target.compiler);
+    sb_string_append_cstr(&target.compiler, sb_default_compiler__);
+    SB_String target_path = sb_path_join(sb_build_dir__, name);
+    target.path = sb_string_move(&target_path);
+    return target;
+}
+
+SB_Target sb_create_object(const char *name)
+{
+    assert(name && strlen(name) > 0 && "Bad object name");
+
+    SB_Target target = {0};
+    target.target_type = SB_OBJECT;
+    target.always_build = false;
+    sb_string_append_cstr(&target.name, name);
+    sb_string_append_cstr(&target.compiler, sb_default_compiler__);
+    SB_String target_path = sb_path_join(sb_build_dir__, name);
+    target.path = sb_string_move(&target_path);
+    return target;
+}
+
+SB_Target sb_create_phony(const char *name)
+{
+    SB_Target target = {0};
+    target.target_type = SB_PHONY;
+    target.always_build = false;
+    sb_string_append_cstr(&target.name, name);
+    return target;
+}
+
+bool sb_set_compiler(SB_Target *target, const char *compiler)
+{
+    if (!target) {
+        return false;
+    }
+
+    sb_string_clean(&target->compiler);
+    return sb_string_append_cstr(&target->compiler, compiler);
+}
+
+bool sb_set_linker(SB_Target *target, const char *linker)
+{
+    if (!target) {
+        return false;
+    }
+
+    sb_string_clean(&target->linker);
+    return sb_string_append_cstr(&target->linker, linker);
+}
+
+bool sb_check_append_object_from_src(SB_Target *target, SB_String src)
+{
+    if (sb_string_empty(&src)) {
+        return false;
+    }
+
+    SB_String obj_name = sb_string_copy(&src);
+    sb_string_append_cstr(&obj_name, ".o");
+    SB_Target obj = sb_create_object(obj_name.str);
+    sb_set_compiler(&obj, "");   // set compiler on build time
+    sb_add_flag(&obj, "-o");
+    sb_add_flag(&obj, SB_TARGET);
+    sb_add_flag(&obj, "-c");
+    sb_add_flag(&obj, "-Wno-unused-command-line-argument");
+    sb_add_src_s(&obj, src);
+    sb_always_build(&obj, target->always_build);
+    sb_string_free(&obj_name);
+
+    sb_add_obj(target, obj);
+    return true;
+}
+
+bool sb_add_src_s(SB_Target *target, SB_String src)
+{
+    if (!target) {
+        return false;
+    }
+
+    if (sb_string_empty(&src)) {
+        return false;
+    }
+
+    switch (target->target_type) {
+    case SB_OBJECT:
+        SB_DA_APPEND(target->srcs, src);
+        break;
+    case SB_ELF:
+        if (!sb_check_append_object_from_src(target, src)) {
+            return false;
+        }
+        break;
+    default:
+        fprintf(stderr, "Ignore add file `%s` for target type: %d\n", src.str, target->target_type);
+        break;
+    }
+
+    return true;
+}
+
+bool sb_add_src(SB_Target *target, const char *src)
+{
+    if (!target) {
+        return false;
+    }
+
+    SB_String src_string = {0};
+    if (sb_string_append_cstr(&src_string, src) <= 0) {
+        return false;
+    }
+    return sb_add_src_s(target, src_string);
+}
+
+bool sb_add_srcs(SB_Target *target, SB_StringList srcs)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < srcs.count; ++i) {
+        if (!sb_add_src_s(target, sb_string_copy(&srcs.list[i]))) {
+            result = false;
+        }
+    }
+
+    return result;
+}
+
+bool sb_add_srcs_v(SB_Target *target, const char **srcs, int count)
+{
+    if (!target || !srcs) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < count; ++i) {
+        if (!sb_add_src(target, srcs[i])) {
+            result = false;
+        }
+    }
+
+    return result;
+}
+
+bool sb_add_flag_s(SB_Target *target, SB_String flag)
+{
+    if (!target) {
+        return false;
+    }
+
+    if (sb_string_empty(&flag)) {
+        return false;
+    }
+
+    SB_DA_APPEND(target->flags, flag);
+    return true;
+}
+
+bool sb_add_flag(SB_Target *target, const char *flag)
+{
+    if (!target) {
+        return false;
+    }
+
+    SB_String flag_string = {0};
+    if (!sb_string_append_cstr(&flag_string, flag)) {
+        return false;
+    }
+    return sb_add_flag_s(target, flag_string);
+}
+
+bool sb_add_flags(SB_Target *target, SB_StringList flags)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = false;
+    for (int i = 0; i < flags.count; ++i) {
+        if (sb_add_flag_s(target, sb_string_copy(&flags.list[i]))) {
+            result = true;
+        }
+    }
+
+    return result;
+}
+
+bool sb_add_flags_v(SB_Target *target, const char **flags, int count)
+{
+    if (!target || !flags) {
+        return false;
+    }
+
+    bool result = false;
+    for (int i = 0; i < count; ++i) {
+        if (sb_add_flag(target, flags[i])) {
+            result = true;
+        }
+    }
+
+    return result;
+}
+
+bool sb_add_dep_file(SB_Target *target, const char *dep)
+{
+    if (!target) {
+        return false;
+    }
+
+    SB_String dep_file = {0};
+    if (!sb_string_append_cstr(&dep_file, dep)) {
+        return false;
+    }
+    return sb_add_dep_file_s(target, dep_file);
+}
+
+bool sb_add_dep_file_s(SB_Target *target, SB_String dep)
+{
+    if (!target) {
+        return false;
+    }
+
+    if (dep.count == 0) {
+        return false;
+    }
+    SB_DA_APPEND(target->dep_files, dep);
+    return true;
+}
+
+bool sb_add_dep_files(SB_Target *target, SB_StringList deps)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < deps.count; ++i) {
+        if (!sb_add_dep_file_s(target, deps.list[i])) {
+            result = false;
+        }
+    }
+    return result;
+}
+
+bool sb_add_dep_files_v(SB_Target *target, const char **deps, int count)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < count; ++i) {
+        if (!sb_add_dep_file(target, deps[i])) {
+            result = false;
+        }
+    }
+    return result;
+}
+
+bool sb_add_dep(SB_Target *target, SB_Target dep)
+{
+    if (!target) {
+        return false;
+    }
+
+    SB_DA_APPEND(target->deps, dep);
+    return true;
+}
+
+bool sb_add_deps(SB_Target *target, SB_TargetList deps)
+{
+    if (!target) {
+        return false;
+    }
+
+    for (int i = 0; i < deps.count; ++i) {
+        SB_DA_APPEND(target->deps, deps.list[i]);
+    }
+    return true;
+}
+
+bool sb_add_deps_v(SB_Target *target, const SB_Target* deps, int count)
+{
+    if (!target) {
+        return false;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        SB_DA_APPEND(target->deps, deps[i]);
+    }
+    return true;
+}
+
+bool sb_add_obj(SB_Target *target, SB_Target obj)
+{
+    if (!target) {
+        return false;
+    }
+
+    SB_DA_APPEND(target->objs, obj);
+    return true;
+}
+
+bool sb_add_objs(SB_Target *target, SB_TargetList objs)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < objs.count; ++i) {
+        if (!sb_add_obj(target, objs.list[i])) {
+            result = false;
+        }
+    }
+
+    return result;
+}
+
+bool sb_add_objs_v(SB_Target *target, const SB_Target* objs, int count)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool result = true;
+    for (int i = 0; i < count; ++i) {
+        if (!sb_add_obj(target, objs[i])) {
+            result = false;
+        }
+    }
+
+    return false;
+}
+
+bool sb_always_build(SB_Target *target, bool sure)
+{
+    if (!target) {
+        return false;
+    }
+
+    target->always_build = sure;
+    return true;
+}
+
+bool sb_build(SB_Target *target)
+{
+    if (!target) {
+        return false;
+    }
+
+    bool should_build = target->always_build;
+    const char *cmd[SB_MAX_ARGS];
+    int cmd_idx = 0;
+
+    for (int i = 0; i < target->deps.count; ++i) {
+        SB_Target dep = target->deps.list[i];
+        if (!sb_build(&dep) || dep.status != 0) {
+            fprintf( stderr, "Failed to build %s\n", dep.name.str);
+            target->status = -1;
+            return false;
+        }
+    }
+
+    for (int i = 0; i < target->dep_files.count; ++i) {
+        if (should_build || sb_should_compile(target->dep_files.list[i].str, target->path.str)) {
+            should_build = true;
+        }
+    }
+
+    switch (target->target_type) {
+    case SB_ELF: {
+        cmd[cmd_idx++] = sb_string_empty(&(target->linker))
+            ? target->compiler.str
+            : target->linker.str;
+        for (int obj_i = 0; obj_i < target->objs.count; ++obj_i) {
+            SB_Target *obj = &(target->objs.list[obj_i]);
+            if (sb_string_empty(&obj->compiler)) {
+                obj->compiler = sb_string_copy(&target->compiler);
+                for (int flag_i = 0; flag_i < target->flags.count; ++flag_i) {
+                    SB_DA_APPEND(obj->flags, target->flags.list[flag_i]);
+                }
+            }
+
+            if (!sb_build(obj) || obj->status != 0) {
+                fprintf(stderr, "Failed to build %s\n", obj->name.str);
+                target->status = -1;
+                return false;
+            }
+            if (should_build || sb_should_compile(obj->path.str, target->path.str)) {
+                should_build = true;
+            }
+            cmd[cmd_idx++] = obj->path.str;
+        }
+
+        cmd[cmd_idx++] = "-o";
+        cmd[cmd_idx++] = target->path.str;
+    } break;
+    case SB_OBJECT: {
+        cmd[cmd_idx++] = target->compiler.str;
+        for (int src_i = 0; src_i < target->srcs.count; ++src_i) {
+            SB_String *src = &(target->srcs.list[src_i]);
+            if (should_build || sb_should_compile(src->str, target->path.str)) {
+                should_build = true;
+            }
+            cmd[cmd_idx++] = src->str;
+        }
+    } break;
+    case SB_PHONY: {
+        should_build = true;
+        cmd[cmd_idx++] = target->name.str;
+    } break;
+    default:
+        fprintf(stderr, "Unknown entity type: %d\n", target->target_type);
+        break;
+    }
+
+    for (int flag_i = 0; flag_i < target->flags.count; ++flag_i) {
+        SB_String *flag = &(target->flags.list[flag_i]);
+        if (strcmp(flag->str, SB_TARGET) == 0) {
+            cmd[cmd_idx++] = target->path.str;
+        } else {
+            cmd[cmd_idx++] = flag->str;
+        }
+    }
+
+    if (should_build) {
+        sb_print_command(cmd, cmd_idx);
+        target->status = sb_command_v(cmd, cmd_idx);
+    } else {
+        if (target->target_type == SB_ELF) {
+            printf("No update for %s\n", target->name.str);
+        }
+        target->status = 0;
+    }
+
+    return true;
+}
+
+bool sb_should_compile(const char *src, const char *target)
+{
+    if (!target || strlen(target) == 0) {
+        return true;
+    }
+
+    bool result = true;
+    struct stat st;
+    if (stat(src, &st) == 0) {
+        uint64_t src_mtime = FILE_MTIME_NS(st);
+        if (stat(target, &st) == 0) {
+            uint64_t obj_mtime = FILE_MTIME_NS(st);
+            if (obj_mtime > src_mtime) {
+                result = false;
+            }
+        }
+    } else {
+        fprintf(stderr, "source file %s not found\n", src);
+        return false;
+    }
+
+    return result;
+}
+
+void sb_print_command(const char **cmd, int count)
+{
+    for (size_t i = 0; i < count; ++i) {
+        printf("%s", cmd[i]);
+        if (i == count - 1)
+            printf("\n");
+        else
+            printf(" ");
+    }
+}
+
+const char* sb_dir()
+{
+    static char output[256] = {0};
+    uint32_t len = 256;
+#ifdef __APPLE__
+    if (_NSGetExecutablePath(output, &len) != 0) {
+        abort();
+    }
+#else // __APPLE__
+    const char *self_exe = "/proc/self/exe";
+    len = readlink(self_exe, output, len - 1);
+    if (len >= len - 1) {
+        abort();
+    }
+#endif // __APPLE__
+
+    size_t last_slash = 0;
+    for (size_t i = 0; i < len; ++i) {
+        if (output[i] == '/') {
+            last_slash = i;
+        }
+    }
+    output[last_slash + 1] = '\0';
+    return output;
+}
+
+bool mkdir_if_not_exists(const char* dir)
+{
+    const mode_t mode = 0755;
+    struct stat st;
+    int dir_len = strlen(dir);
+    char buff[dir_len + 1];
+    for (size_t i = 0; i < dir_len; ++i) {
+        char ch = dir[i];
+        buff[i] = ch;
+        buff[i + 1] = '\0';
+        if (ch == '/' || i == dir_len - 1) {
+            if(stat(buff, &st) != 0) {
+                if (mkdir(buff, mode) != 0) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+int copy_file(const char *src, const char *dest)
+{
+    FILE *src_file = fopen(src, "rb");
+    if (!src_file) return -1;
+
+    FILE *dest_file = fopen(dest, "wb");
+    if (!dest_file) {
+        fclose(src_file);
+        return -1;
+    }
+
+    char buffer[8192]; // 8KB buffer size
+    size_t bytes_read;
+
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), src_file)) > 0) {
+        fwrite(buffer, 1, bytes_read, dest_file);
+    }
+
+    fclose(src_file);
+    fclose(dest_file);
+    return 0;
+}
+
+SB_String* sb_string_trim_left(SB_String *str)
+{
+    if (sb_string_empty(str)) {
+        return str;
+    }
+
+    int i = 0;
+    for (; i < str->count; ++i) {
+        if (!isspace(str->str[i])) {
+            break;
+        }
+    }
+    if (i != 0) {
+        str->count -= i;
+        char* tmp = (char*)malloc(str->capacity);
+        memcpy(tmp, str->str + i, str->count);
+        free(str->str);
+        str->str = tmp;
+    }
+    return str;   
+}
+
+SB_String* sb_string_trim_right(SB_String *str)
+{
+    if (sb_string_empty(str)) {
+        return str;
+    }
+
+    int i = str->count - 1;
+    for (; i >= 0; --i) {
+        if (!isspace(str->str[i])) {
+            break;
+        } else {
+            --str->count;
+        }
+    }
+    return str;
+}
+
+SB_String* sb_string_trim(SB_String *str)
+{
+    return sb_string_trim_left(sb_string_trim_right(str));
+}
+
+SB_String sb_path_join(const char *parent, const char *child)
+{
+    SB_String output = {0};
+    if (!parent) {
+        sb_string_append_cstr(&output, child);
+        return output;
+    }
+
+    if (!child) {
+        sb_string_append_cstr(&output, parent);
+        return output;
+    }
+
+    if (parent[strlen(parent) - 1] == '/') {
+        sb_string_append_cstr(&output, parent);
+        sb_string_append_cstr(&output, child);
+    } else {
+        sb_string_append_cstr(&output, parent);
+        sb_string_append_char(&output, '/');
+        sb_string_append_cstr(&output, child);
+    }
+    return output;
+}
+
+SB_StringList sb_split_cstr(const char* str)
+{
+    size_t idx = 0;
+    size_t last = 0;
+    size_t i = 0;
+    SB_StringList string_list = {0};
+
+    for (;; ++i) {
+        char ch = str[i];
+        if (ch == '\0') {
+            if (last != i) {
+                SB_String string = {0};
+                sb_string_append_substr(&string, str + last, str + i);
+                SB_DA_APPEND(string_list, string);
+            }
+            break;
+        }
+
+        switch (ch) {
+        case '\'':
+        case '"': {
+            char match_target = ch;
+            int start = i + 1;
+            char next = str[++i];
+            while (next && next != match_target) {
+                next = str[++i];
+            }
+            SB_String string = {0};
+            sb_string_append_substr(&string, str + start, str + i);
+            SB_DA_APPEND(string_list, string);
+            last = i + 1;
+        } break;
+        case ' ':
+        case '\n':
+        case '\t':
+            if (last != i) {
+                SB_String string = {0};
+                sb_string_append_substr(&string, str + last, str + i);
+                SB_DA_APPEND(string_list, string);
+            }
+            last = i + 1;
+            break;
+        default:
+            break;
+        }
+    }
+    return string_list;
+}
+
+int sb_string_append_substr(SB_String *string, const char *start, const char *end)
+{
+    if (!string || !start || !end) {
+        return 0;
+    }
+
+    const int str_len = end - start;
+    int remain_cap = string->capacity - string->count;
+    int target_cap = remain_cap >= (str_len + 1)
+        ? string->capacity
+        : string->capacity * 2;
+    remain_cap = target_cap - string->count;
+    target_cap = remain_cap >= (str_len + 1)
+        ? target_cap
+        : ((string->capacity - string->count + str_len + 1) / 8 + 1) * 8;
+    if (target_cap != string->capacity) {
+        string->capacity = target_cap;
+        string->str = string->str
+            ? (char*)realloc(string->str, string->capacity)
+            : (char*)malloc(string->capacity);
+    }
+    for (int i = 0; i < str_len; ++i) {
+        string->str[string->count] = *((start) + i);
+        ++(string->count);
+    }
+    string->str[string->count] = '\0';
+    return str_len;
+}
+
+int sb_string_append_char(SB_String *string, char c)
+{
+    if (!string) {
+        return 0;
+    }
+
+    int remain_cap = string->capacity - string->count;
+    int target_cap = remain_cap >= 2
+        ? string->capacity
+        : string->capacity * 2;
+    remain_cap = target_cap - string->count;
+    target_cap = remain_cap >= 2
+        ? target_cap
+        : ((string->capacity - string->count + 2) / 8 + 1) * 8;
+    if (target_cap != string->capacity) {
+        string->capacity = target_cap;
+        string->str = string->str
+            ? (char*)realloc(string->str, string->capacity)
+            : (char*)malloc(string->capacity);
+    }
+
+    string->str[string->count] = c;
+    ++(string->count);
+    string->str[string->count] = '\0';
+    return 1;
+}
+
+int sb_string_append_cstr(SB_String *string, const char *cstr)
+{
+    if (!string || !cstr) {
+        return 0;
+    }
+
+    const int str_len = strlen(cstr);
+    int remain_cap = string->capacity - string->count;
+    int target_cap = remain_cap >= (str_len + 1)
+        ? string->capacity
+        : string->capacity * 2;
+    remain_cap = target_cap - string->count;
+    target_cap = remain_cap >= (str_len + 1)
+        ? target_cap
+        : ((string->capacity - string->count + str_len + 1) / 8 + 1) * 8;
+    if (target_cap != string->capacity) {
+        string->capacity = target_cap;
+        string->str = string->str
+            ? (char*)realloc(string->str, string->capacity)
+            : (char*)malloc(string->capacity);
+    }
+    for (int i = 0; i < str_len; ++i) {
+        string->str[string->count] = cstr[i];
+        ++(string->count);
+    }
+    string->str[string->count] = '\0';
+    return str_len;
+}
+
+SB_String sb_string_move(SB_String *src)
+{
+    SB_String dest = {0};
+    if (!src) {
+        return dest;
+    }
+
+    dest.str = src->str;
+    dest.count = src->count;
+    dest.capacity = src->capacity;
+    src->count = 0;
+    src->capacity = 0;
+    src->str = NULL;
+    return dest;
+}
+
+SB_String sb_string_copy(const SB_String *src)
+{
+    SB_String dest = {0};
+    if (!src) {
+        return dest;
+    }
+
+    dest.capacity = src->capacity;
+    dest.str = (char*)malloc(src->capacity);
+
+    memcpy(dest.str, src->str, src->count + 1);
+    dest.count = src->count;
+    dest.capacity = src->capacity;
+    return dest;
+}
+
+void sb_string_free(SB_String *string)
+{
+    if (!string) {
+        return;
+    }
+
+    if (string->str) {
+        free(string->str);
+    }
+
+    string->str = NULL;
+    string->count = 0;
+    string->capacity = 0;
+}
+
+bool sb_string_empty(const SB_String *string)
+{
+    return !string->str || string->count <= 0;
+}
+
+void sb_string_clean(SB_String *string)
+{
+    string->count = 0;
+}
+
+#endif // SB_IMPLEMENTATION

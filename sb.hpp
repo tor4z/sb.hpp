@@ -1453,11 +1453,11 @@ void TestingCases::test_all()
 
 void TestingCases::report() const
 {
-    std::cout << "=============================\n";
+    std::cout << "============== summary ==============\n";
     std::cout << "    " << cases_.size() << " cases tested\n"
               << "    " << passed_cnt_ << SB_TERM_COLOR_SUCC_S << " passed\n" << SB_TERM_COLOR_E
               << "    " << failed_cnt_ << SB_TERM_COLOR_FAIL_S << " failed\n" << SB_TERM_COLOR_E;
-    std::cout << "=============================\n";
+    std::cout << "===================================\n";
 }
 
 bool mkdir_if_not_exists(const std::string &dir)

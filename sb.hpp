@@ -133,13 +133,13 @@ class ArgParser
         union
         {
             std::string str;
-            int i;
-            float f;
-            bool b;
             std::vector<std::string> vstr;
             std::vector<int> vi;
             std::vector<float> vf;
             std::vector<bool> vb;
+            int i;
+            float f;
+            bool b;
         };
         SchemeType type;
         const char* key;
@@ -147,9 +147,9 @@ class ArgParser
     }; // struct Scheme
 
     template<typename T>
-    friend T& flags_arg(const char *key, T default_val, const char *help);
-    friend bool flags_parse(int argc, char **argv);
-    friend void flags_show_usage();
+    friend T& flag_arg(const char *key, T default_val, const char *help);
+    friend bool flag_parse(int argc, char **argv);
+    friend void flag_show_usage();
 
     static ArgParser* instance();
     Scheme& add_scheme(const char *key, const char *help);
@@ -160,14 +160,14 @@ class ArgParser
 }; // class ArgParser
 
 template<typename T>
-T& flags_arg(const char *key, T default_val, const char *help)
+T& flag_arg(const char *key, T default_val, const char *help)
 {
     std::cout << "Unknoen type\n";
     return T();
 }
 
-bool flags_parse(int argc, char **argv);
-void flags_show_usage();
+bool flag_parse(int argc, char **argv);
+void flag_show_usage();
     
 // -------- Unit testing ---------
 
@@ -1119,7 +1119,7 @@ ArgParser::Scheme::~Scheme()
 ArgParser::Scheme& ArgParser::add_scheme(const char *key, const char *help)
 {
     if (scheme_idx_ >= SB_MAX_ARGS) {
-        std::cout << "tooo much args to parse\n";
+        std::cout << "Tooo much args to parse\n";
         abort();
     }
     ArgParser::Scheme& scheme = scheme_list_[scheme_idx_++];
@@ -1145,7 +1145,7 @@ std::vector<std::string> str_split_with_comma(const char* str)
     return output;
 }
 
-bool flags_parse(int argc, char **argv)
+bool flag_parse(int argc, char **argv)
 {
     ArgParser* arg_parser = ArgParser::instance();
     if (argc < 1) {
@@ -1241,7 +1241,7 @@ bool flags_parse(int argc, char **argv)
 }
 
 template<>
-bool& flags_arg<bool>(const char *key, bool default_val, const char *help)
+bool& flag_arg<bool>(const char *key, bool default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1251,7 +1251,7 @@ bool& flags_arg<bool>(const char *key, bool default_val, const char *help)
 }
 
 template<>
-int& flags_arg<int>(const char *key, int default_val, const char *help)
+int& flag_arg<int>(const char *key, int default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1261,7 +1261,7 @@ int& flags_arg<int>(const char *key, int default_val, const char *help)
 }
 
 template<>
-float& flags_arg<float>(const char *key, float default_val, const char *help)
+float& flag_arg<float>(const char *key, float default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1271,7 +1271,7 @@ float& flags_arg<float>(const char *key, float default_val, const char *help)
 }
 
 template<>
-std::string& flags_arg<std::string>(const char *key, std::string default_val, const char *help)
+std::string& flag_arg<std::string>(const char *key, std::string default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1281,7 +1281,7 @@ std::string& flags_arg<std::string>(const char *key, std::string default_val, co
 }
 
 template<>
-std::vector<std::string>& flags_arg<std::vector<std::string>>(const char *key, std::vector<std::string> default_val, const char *help)
+std::vector<std::string>& flag_arg<std::vector<std::string>>(const char *key, std::vector<std::string> default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1291,7 +1291,7 @@ std::vector<std::string>& flags_arg<std::vector<std::string>>(const char *key, s
 }
 
 template<>
-std::vector<int>& flags_arg<std::vector<int>>(const char *key, std::vector<int> default_val, const char *help)
+std::vector<int>& flag_arg<std::vector<int>>(const char *key, std::vector<int> default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1301,7 +1301,7 @@ std::vector<int>& flags_arg<std::vector<int>>(const char *key, std::vector<int> 
 }
 
 template<>
-std::vector<float>& flags_arg<std::vector<float>>(const char *key, std::vector<float> default_val, const char *help)
+std::vector<float>& flag_arg<std::vector<float>>(const char *key, std::vector<float> default_val, const char *help)
 {
     ArgParser* arg_parser = ArgParser::instance();
     ArgParser::Scheme& scheme = arg_parser->add_scheme(key, help);
@@ -1310,7 +1310,7 @@ std::vector<float>& flags_arg<std::vector<float>>(const char *key, std::vector<f
     return scheme.vf;
 }
 
-void flags_show_usage()
+void flag_show_usage()
 {
     const int help_align_len = 32;
 

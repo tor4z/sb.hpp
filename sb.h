@@ -31,6 +31,24 @@ typedef struct SB_StringList {
     int capacity;
 } SB_StringList; // struct SB_StringList
 
+typedef struct SB_IntList {
+    int *list;
+    int count;
+    int capacity;
+} SB_IntList; // struct SB_IntList
+
+typedef struct SB_BoolList {
+    bool *list;
+    int count;
+    int capacity;
+} SB_BoolList; // struct SB_BoolList
+
+typedef struct SB_FloatList {
+    float *list;
+    int count;
+    int capacity;
+} SB_FloatList; // struct SB_FloatList
+
 typedef struct SB_TargetList {
     SB_Target *list;
     int count;
@@ -92,6 +110,7 @@ int sb_command_v(const char **cmd, int count);
 int sb_command_p(const char *first, ...);
 SB_String sb_shell(const char *cmd_str);
 SB_String sb_shell_v(const char **cmd, int count);
+SB_String sb_shell_p(const char *first, ...);
 
 #define sb_auto_rebuild_self(argc, argv) sb_auto_rebuild_self__(argc, argv, __FILE__)
 bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
@@ -104,6 +123,20 @@ SB_String sb_string_copy(const SB_String *src);
 void sb_string_clean(SB_String *string);
 void sb_string_free(SB_String *string);
 bool sb_string_empty(const SB_String *string);
+bool sb_string_reserve(SB_String *string, int count);
+
+// ----- flags ------
+
+const char *sb_flag_string(const char *key, const char *default_val, const char *help);
+int *sb_flag_int(const char *key, int default_val, const char *help);
+float *sb_flag_float(const char *key, float default_val, const char *help);
+bool *sb_flag_bool(const char *key, bool default_val, const char *help);
+SB_StringList *sb_flag_string_v(const char *key, const SB_StringList *default_val, const char *help);
+SB_IntList *sb_flag_int_v(const char *key, const SB_IntList *default_val, const char *help);
+SB_FloatList *sb_flag_float_v(const char *key, const SB_FloatList *default_val, const char *help);
+bool sb_flag_parse(int argc, char **argv);
+void sb_flag_show_usage();
+
 
 #define SB_DA_APPEND(da, x)                                         \
     do {                                                            \
@@ -120,6 +153,25 @@ bool sb_string_empty(const SB_String *string);
         }                                                           \
         (da).list[(da).count] = x;                                  \
         ++(da).count;                                               \
+    } while(0)
+
+#define SB_DA_APPEND_MANY(da, xs, n)                                \
+    do {                                                            \
+        if (!(da).list) {                                           \
+            /* init da */                                           \
+            (da).capacity = (n / 8 + 1) * 8;                        \
+            (da).list = malloc(sizeof(*(da).list) * (da).capacity); \
+        } else {                                                    \
+            if ((da).count == (da).capacity) {                      \
+                (da).capacity *= 2;                                 \
+                (da).list = realloc((da).list,                      \
+                    sizeof(*(da).list) * (da).capacity);            \
+            }                                                       \
+        }                                                           \
+        for (int i = 0; i < n; ++i) {                               \
+            (da).list[(da).count] = xs[i];                          \
+            ++(da).count;                                           \
+        }                                                           \
     } while(0)
 
 #define SB_DA_RESET(da)                                             \
@@ -386,6 +438,25 @@ SB_String sb_shell(const char *cmd_str)
     SB_DA_FREE(string_list);
     return result;
 }
+
+SB_String sb_shell_p(const char *first, ...)
+{
+    const char *cmd[SB_MAX_ARGS];
+    int cmd_idx = 0;
+
+    va_list ap;
+    va_start(ap, first);
+
+    const char *p = first;
+    while(p) {
+        cmd[cmd_idx++] = p;
+        p = va_arg(ap, const char*);
+    }
+    va_end(ap);
+
+    return sb_shell_v(cmd, cmd_idx);
+}
+
 
 void sb_set_build_dir(const char* dir)
 {
@@ -882,6 +953,302 @@ void sb_print_command(const char **cmd, int count)
     }
 }
 
+// ----------- flag --------
+enum SB_AP_SchemeType
+{
+    SB_APST_UNKNOWN = 0,
+    SB_APST_STR,
+    SB_APST_INT,
+    SB_APST_FLOAT,
+    SB_APST_BOOL,
+    SB_APST_VSTR,
+    SB_APST_VINT,
+    SB_APST_VFLOAT,
+}; // enum SB_AP_SchemeType
+
+typedef struct SB_AP_Scheme {
+    union
+    {
+        SB_String str;
+        SB_StringList vstr;
+        SB_IntList vi;
+        SB_FloatList vf;
+        SB_BoolList vb;
+        int i;
+        float f;
+        bool b;
+    };
+    enum SB_AP_SchemeType type;
+    const char* key;
+    const char* help;
+} SB_AP_Scheme; // struct SB_AP_Scheme
+
+typedef struct SB_ArgParser
+{
+    const char* self_anme;
+    SB_AP_Scheme scheme_list[SB_MAX_ARGS];
+    int scheme_idx;
+} SB_ArgParser; // struct SB_ArgParser
+
+static SB_ArgParser sb_ap__ = {0};
+
+SB_AP_Scheme *sb_flag_add_scheme(const char *key, const char *help)
+{
+    if (sb_ap__.scheme_idx >= SB_MAX_ARGS) {
+        fprintf(stderr, "Tooo much args to parse\n");
+        abort();
+    }
+
+    SB_AP_Scheme *scheme = &(sb_ap__.scheme_list[sb_ap__.scheme_idx++]);
+    scheme->help = help;
+    scheme->key = key;
+    scheme->type = SB_APST_UNKNOWN;
+    return scheme;
+}
+
+SB_StringList sb_str_split_with_comma(const char* str)
+{
+    SB_StringList output = {0};
+    SB_String string = {0};
+    sb_string_reserve(&string, 8);
+
+    if (str) {
+        while (*str) {
+            if (*str != ',') {
+                sb_string_append_char(&string, *str);
+            } else {
+                SB_DA_APPEND(output, string);
+                string.str = NULL;
+                string.count = 0;
+                string.capacity = 0;
+                sb_string_reserve(&string, 8);
+            }
+            ++str;
+        }
+        if (string.count > 0) {
+            SB_DA_APPEND(output, string);
+        }
+    }
+    return output;
+}
+
+const char *sb_flag_string(const char *key, const char *default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    SB_String str = {0};
+    sb_string_append_cstr(&str, default_val);
+    scheme->str = sb_string_move(&str);
+    scheme->type = SB_APST_STR;
+    return scheme->str.str;
+}
+
+int *sb_flag_int(const char *key, int default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->i = default_val;
+    scheme->type = SB_APST_INT;
+    return &scheme->i;
+}
+
+float *sb_flag_float(const char *key, float default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->f = default_val;
+    scheme->type = SB_APST_FLOAT;
+    return &scheme->f;
+}
+
+bool *sb_flag_bool(const char *key, bool default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->b = default_val;
+    scheme->type = SB_APST_BOOL;
+    return &scheme->b;
+}
+
+SB_StringList *sb_flag_string_v(const char *key, const SB_StringList *default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->vstr = *default_val;
+    scheme->type = SB_APST_VSTR;
+    return &(scheme->vstr);
+}
+
+SB_IntList *sb_flag_int_v(const char *key, const SB_IntList *default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->vi = *default_val;
+    scheme->type = SB_APST_VINT;
+    return &(scheme->vi);
+}
+
+SB_FloatList *sb_flag_float_v(const char *key, const SB_FloatList *default_val, const char *help)
+{
+    SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
+    scheme->vf = *default_val;
+    scheme->type = SB_APST_VFLOAT;
+    return &(scheme->vf);
+}
+
+bool sb_flag_parse(int argc, char **argv)
+{
+    if (argc < 1) {
+        return false;
+    }
+
+    for (int i = 0; i < argc; ++i) {
+        const char* this_arg = argv[i];
+        bool arg_matched = false;
+        if(i == 0) {
+            sb_ap__.self_anme = this_arg;
+            continue;
+        }
+
+        for (int j = 0; j < sb_ap__.scheme_idx && !arg_matched; ++j) {
+            SB_AP_Scheme *scheme = &(sb_ap__.scheme_list[j]);
+            if (strcmp(scheme->key, this_arg) == 0) {
+                arg_matched = true;
+                const char* next_arg = i < argc ? argv[i + 1] : NULL;
+                switch (scheme->type) {
+                case SB_APST_STR:
+                    if (!next_arg) return false;
+                    sb_string_clean(&scheme->str);
+                    sb_string_append_cstr(&scheme->str, next_arg);
+                    ++i;
+                    break;
+                case SB_APST_INT:
+                    if (!next_arg) return false;
+                    scheme->i = atoi(next_arg);
+                    ++i;
+                    break;
+                case SB_APST_FLOAT:
+                    if (!next_arg) return false;
+                    scheme->f = atof(next_arg);
+                    ++i;
+                    break;
+                case SB_APST_BOOL:
+                    if (!next_arg || strcmp(next_arg, "true") == 0) {
+                        scheme->b = true;
+                        ++i;
+                    } else if (next_arg && strcmp(next_arg, "false") == 0) {
+                        scheme->b = false;
+                        ++i;
+                    } else {
+                        scheme->b = true;
+                    }
+                    break;
+                case SB_APST_VSTR: {
+                    if (!next_arg) return false;
+                    SB_DA_FREE(scheme->vstr);
+                    scheme->vstr = sb_str_split_with_comma(next_arg);
+                    ++i;
+                } break;
+                case SB_APST_VINT: {
+                    if (!next_arg) return false;
+                    SB_StringList vstr = sb_str_split_with_comma(next_arg);
+                    SB_DA_FREE(scheme->vi);
+                    for (int str_i = 0; str_i < vstr.count; ++ str_i) {
+                        SB_String *this_str = &vstr.list[str_i];
+                        if (!sb_string_empty(this_str)) {
+                            SB_DA_APPEND(scheme->vi, atoi(this_str->str));
+                        } else {
+                            fprintf(stderr, "Bad int type argument: %s\n", this_str->str);
+                        }
+                        //  free tmp string
+                        sb_string_free(this_str);
+                    }
+                    SB_DA_FREE(vstr);
+                    ++i;
+                } break;
+                case SB_APST_VFLOAT: {
+                   if (!next_arg) return false;
+                    SB_StringList vstr = sb_str_split_with_comma(next_arg);
+                    SB_DA_FREE(scheme->vf);
+                    for (int str_i = 0; str_i < vstr.count; ++ str_i) {
+                        SB_String *this_str = &vstr.list[str_i];
+                        if (!sb_string_empty(this_str)) {
+                            SB_DA_APPEND(scheme->vf, atof(this_str->str));
+                        } else {
+                            fprintf(stderr, "Bad float type argument: %s\n", this_str->str);
+                        }
+                        //  free tmp string
+                        sb_string_free(this_str);
+                    }
+                    SB_DA_FREE(vstr);
+                    ++i;
+                } break;
+                case SB_APST_UNKNOWN:
+                default:
+                    fprintf(stderr, "Unknown argument type for %s\n", this_arg);
+                    return false;
+                }
+                continue;
+            }
+        }
+        if (!arg_matched) {
+            fprintf(stderr, "Unknown argument: %s\n", this_arg);
+            return false;
+        }
+    }
+    return true;
+}
+
+void sb_flag_show_usage()
+{
+    const int help_align_len = 32;
+
+    printf("Usage for %s\n", sb_ap__.self_anme);
+    SB_String help_line = {0};
+    sb_string_reserve(&help_line, 64);
+
+    for (int i = 0; i < sb_ap__.scheme_idx; ++i) {
+        SB_AP_Scheme *scheme = &(sb_ap__.scheme_list[i]);
+        sb_string_append_cstr(&help_line, "  ");
+        sb_string_append_cstr(&help_line, scheme->key);
+        sb_string_append_char(&help_line, ' ');
+
+        switch (scheme->type) {
+        case SB_APST_STR:
+            sb_string_append_cstr(&help_line, "<str>");
+            break;
+        case SB_APST_INT:
+            sb_string_append_cstr(&help_line, "<int>");
+            break;
+        case SB_APST_FLOAT:
+            sb_string_append_cstr(&help_line, "<float>");
+            break;
+        case SB_APST_BOOL:
+            sb_string_append_cstr(&help_line, "<[true|false]>");
+            break;
+        case SB_APST_VSTR:
+            sb_string_append_cstr(&help_line, "<str,str,..>");
+            break;
+        case SB_APST_VINT:
+            sb_string_append_cstr(&help_line, "<int,int,..>");
+            break;
+        case SB_APST_VFLOAT:
+            sb_string_append_cstr(&help_line, "<float,float,..>");
+            break;
+        default:
+            break;
+        }
+
+        printf("%s", help_line.str);
+        int help_line_len = help_line.count;
+        if (help_line_len > help_align_len) {
+            printf("\n");
+            help_line_len = 0;
+        }
+        for (int j = 0; j < help_align_len - help_line_len; ++j) {
+            printf(" ");
+        }
+        printf("%s\n", scheme->help);
+        sb_string_clean(&help_line);
+    }
+    sb_string_free(&help_line);
+    printf("\n");
+}
+
 const char* sb_dir()
 {
     static char output[256] = {0};
@@ -1209,6 +1576,28 @@ bool sb_string_empty(const SB_String *string)
 void sb_string_clean(SB_String *string)
 {
     string->count = 0;
+}
+
+bool sb_string_reserve(SB_String *string, int count)
+{
+    if (!string || count <= 0) {
+        return false;
+    }
+
+    int target_cap = string->capacity;
+    if (string->str == NULL || string->capacity < count) {
+        target_cap = (count / 8 + 1) * 8;
+        string->capacity = 0;
+    }
+
+    if (string->capacity != target_cap) {
+        string->capacity = target_cap;
+        string->str = string->str
+            ? (char*)malloc(string->capacity)
+            : (char*)realloc(string->str, string->capacity);
+    }
+
+    return true;
 }
 
 #endif // SB_IMPLEMENTATION

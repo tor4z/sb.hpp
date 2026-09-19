@@ -177,7 +177,7 @@ struct BaseTestingCase
     std::ostream& on_assert_success(std::ostream& os);
     std::ostream& on_assert_failed(std::ostream& os, const char *filename, int line,
         const char *checking);
-    void report(std::ostream& os) const;
+    void summary(std::ostream& os) const;
 
     virtual void body() = 0;
 
@@ -197,7 +197,7 @@ class TestingCases
 {
 public:
     static TestingCases* instance();
-    void report() const;
+    void summary() const;
     void test_all();
     int failed_cnt() const { return failed_cnt_; }
     int passed_cnt() const { return passed_cnt_; }
@@ -492,7 +492,7 @@ private:
 int main(int argc, char **argv)
 {
     sb::TestingCases::instance()->test_all();
-    sb::TestingCases::instance()->report();
+    sb::TestingCases::instance()->summary();
     return sb::TestingCases::instance()->failed_cnt();
 }
 
@@ -1392,7 +1392,7 @@ std::ostream& BaseTestingCase::on_assert_failed(std::ostream& os, const char *fi
     return os;
 }
 
-void BaseTestingCase::report(std::ostream& os) const
+void BaseTestingCase::summary(std::ostream& os) const
 {
     if (__failed_assert == 0) {
         os << SB_TERM_COLOR_SUCC_S << __module << '.' << __name << ' ';
@@ -1441,7 +1441,7 @@ void TestingCases::test_all()
 {
     for (sb::BaseTestingCase* c : cases_) {
         c->body();
-        c->report(std::cout);
+        c->summary(std::cout);
 
         if (c->__failed_assert > 0) {
             ++failed_cnt_;
@@ -1451,7 +1451,7 @@ void TestingCases::test_all()
     }
 }
 
-void TestingCases::report() const
+void TestingCases::summary() const
 {
     std::cout << "============== summary ==============\n";
     std::cout << "    " << cases_.size() << " cases tested\n"

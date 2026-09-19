@@ -160,7 +160,7 @@ typedef struct SB_Testing {
 void sb_testing_assert_success(SB_TestingCase *sb_case);
 void sb_testing_assert_failed(SB_TestingCase *sb_case, const char *filename, int line, const char *checking);
 void sb_testing_case_report(SB_TestingCase *sb_case);
-void sb_testing_report();
+void sb_testing_summary();
 
 #define SB_ABS(x) ((x) > 0 ? (x) : -(x))
 #define SB_FLT_NEAR(x, y, err) (SB_ABS((x) - (y)) < err)
@@ -1600,7 +1600,7 @@ void sb_testing_case_report(SB_TestingCase *sb_case)
     printf(SB_TERM_COLOR_E);
 }
 
-void sb_testing_report()
+void sb_testing_summary()
 {
     int passed_cnt = 0;
     int failed_cnt = 0;

@@ -20,6 +20,6 @@ int main()
 {
     SB_TEST_CASE(test_int_add());
     SB_TEST_CASE(test_float_add());
-    sb_testing_report();
+    sb_testing_summary();
     return 0;
 }

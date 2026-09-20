@@ -84,6 +84,7 @@ bool sb_add_srcs(SB_Target *target, SB_StringList srcs);
 bool sb_add_srcs_v(SB_Target *target, const char **srcs, int count);
 
 bool sb_add_flag(SB_Target *target, const char *flag);
+bool sb_add_flag_pair(SB_Target *target, const char *flag1, const char *flag2);
 bool sb_add_flag_s(SB_Target *target, SB_String flag);
 bool sb_add_flags(SB_Target *target, SB_StringList flags);
 bool sb_add_flags_v(SB_Target *target, const char **flags, int count);
@@ -117,7 +118,6 @@ bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
 int sb_string_append_substr(SB_String *string, const char *start, const char *end);
 int sb_string_append_char(SB_String *string, char c);
 int sb_string_append_cstr(SB_String *string, const char *cstr);
-SB_String sb_string_move(SB_String *src);
 SB_String sb_string_copy(const SB_String *src);
 void sb_string_clean(SB_String *string);
 void sb_string_free(SB_String *string);
@@ -646,6 +646,8 @@ int sb_command_v(const char **cmd, int count)
         const char *buff[count + 1];
         for (int i = 0; i < count; ++i) buff[i] = cmd[i];
         buff[count] = NULL;
+
+        sb_print_command(cmd, count);
         execvp(cmd[0], (char* const*)buff);
         // only reach on error
         perror("execvp:");
@@ -796,8 +798,7 @@ SB_Target sb_create_elf(const char *name)
     sb_string_append_cstr(&target.name, name);
     sb_string_clean(&target.compiler);
     sb_string_append_cstr(&target.compiler, sb_default_compiler__);
-    SB_String target_path = sb_path_join(sb_build_dir__, name);
-    target.path = sb_string_move(&target_path);
+    target.path = sb_path_join(sb_build_dir__, name);
     return target;
 }
 
@@ -810,8 +811,7 @@ SB_Target sb_create_object(const char *name)
     target.always_build = false;
     sb_string_append_cstr(&target.name, name);
     sb_string_append_cstr(&target.compiler, sb_default_compiler__);
-    SB_String target_path = sb_path_join(sb_build_dir__, name);
-    target.path = sb_string_move(&target_path);
+    target.path = sb_path_join(sb_build_dir__, name);
     return target;
 }
 
@@ -903,6 +903,7 @@ bool sb_add_src(SB_Target *target, const char *src)
     if (sb_string_append_cstr(&src_string, src) <= 0) {
         return false;
     }
+
     return sb_add_src_s(target, src_string);
 }
 
@@ -963,6 +964,11 @@ bool sb_add_flag(SB_Target *target, const char *flag)
         return false;
     }
     return sb_add_flag_s(target, flag_string);
+}
+
+bool sb_add_flag_pair(SB_Target *target, const char *flag1, const char *flag2)
+{
+    return sb_add_flag(target, flag1) && sb_add_flag(target, flag2);
 }
 
 bool sb_add_flags(SB_Target *target, SB_StringList flags)
@@ -1221,7 +1227,6 @@ bool sb_build(SB_Target *target)
     }
 
     if (should_build) {
-        sb_print_command(cmd, cmd_idx);
         target->status = sb_command_v(cmd, cmd_idx);
     } else {
         if (target->target_type == SB_ELF) {
@@ -1259,6 +1264,7 @@ bool sb_should_compile(const char *src, const char *target)
 
 void sb_print_command(const char **cmd, int count)
 {
+    printf("[CMD]: ");
     for (size_t i = 0; i < count; ++i) {
         printf("%s", cmd[i]);
         if (i == count - 1)
@@ -1350,9 +1356,7 @@ SB_StringList sb_str_split_with_comma(const char* str)
 const char *sb_flag_string(const char *key, const char *default_val, const char *help)
 {
     SB_AP_Scheme *scheme = sb_flag_add_scheme(key, help);
-    SB_String str = {0};
-    sb_string_append_cstr(&str, default_val);
-    scheme->str = sb_string_move(&str);
+    sb_string_append_cstr(&scheme->str, default_val);
     scheme->type = SB_APST_STR;
     return scheme->str.str;
 }
@@ -1822,7 +1826,7 @@ int sb_string_append_substr(SB_String *string, const char *start, const char *en
     remain_cap = target_cap - string->count;
     target_cap = remain_cap >= (str_len + 1)
         ? target_cap
-        : ((string->capacity - string->count + str_len + 1) / 8 + 1) * 8;
+        : ((string->capacity * 2 + str_len - string->count + 1) / 8 + 1) * 8;
     if (target_cap != string->capacity) {
         string->capacity = target_cap;
         string->str = string->str
@@ -1850,7 +1854,7 @@ int sb_string_append_char(SB_String *string, char c)
     remain_cap = target_cap - string->count;
     target_cap = remain_cap >= 2
         ? target_cap
-        : ((string->capacity - string->count + 2) / 8 + 1) * 8;
+        : ((string->capacity + 2) / 8 + 1) * 8;
     if (target_cap != string->capacity) {
         string->capacity = target_cap;
         string->str = string->str
@@ -1878,7 +1882,7 @@ int sb_string_append_cstr(SB_String *string, const char *cstr)
     remain_cap = target_cap - string->count;
     target_cap = remain_cap >= (str_len + 1)
         ? target_cap
-        : ((string->capacity - string->count + str_len + 1) / 8 + 1) * 8;
+        : ((string->capacity * 2 + str_len - string->count + 1) / 8 + 1) * 8;
     if (target_cap != string->capacity) {
         string->capacity = target_cap;
         string->str = string->str
@@ -1888,25 +1892,10 @@ int sb_string_append_cstr(SB_String *string, const char *cstr)
     for (int i = 0; i < str_len; ++i) {
         string->str[string->count] = cstr[i];
         ++(string->count);
+        assert(string->count < string->capacity);
     }
     string->str[string->count] = '\0';
     return str_len;
-}
-
-SB_String sb_string_move(SB_String *src)
-{
-    SB_String dest = {0};
-    if (!src) {
-        return dest;
-    }
-
-    dest.str = src->str;
-    dest.count = src->count;
-    dest.capacity = src->capacity;
-    src->count = 0;
-    src->capacity = 0;
-    src->str = NULL;
-    return dest;
 }
 
 SB_String sb_string_copy(const SB_String *src)

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+
 #ifndef SB_MAX_ARGS
 #   define SB_MAX_ARGS 128
 #endif // SB_MAX_ARGS
@@ -160,27 +161,26 @@ typedef struct SB_Testing {
 void sb_testing_assert_success(SB_TestingCase *sb_case);
 void sb_testing_assert_failed(SB_TestingCase *sb_case, const char *filename, int line, const char *checking);
 void sb_testing_case_report(SB_TestingCase *sb_case);
-void sb_testing_summary();
+int sb_testing_summary();
 
 #define SB_ABS(x) ((x) > 0 ? (x) : -(x))
 #define SB_FLT_NEAR(x, y, err) (SB_ABS((x) - (y)) < err)
 
 SB_Testing __sb_testing;
 
-#define SB_CASE(m, n)                                                                               \
-    SB_TestingCase *__sb_case = NULL;                                                               \
-    do {                                                                                            \
-        SB_TestingCase sb_case = {0};                                                               \
-        sb_string_append_cstr(&sb_case.module, m);                                                  \
-        sb_string_append_cstr(&sb_case.name, n);                                                    \
-        SB_DA_APPEND(__sb_testing.cases, sb_case);                                                  \
-        __sb_case = &(__sb_testing.cases.list[__sb_testing.cases.count - 1]);                       \
-    } while (0)
+#define SB_DECL_CASE(module, name)                                                                  \
+    void sb_testing_case_##module##_##name(SB_TestingCase *__sb_case)
 
-#define SB_TEST_CASE(expr)                                                                          \
+#define SB_DEF_CASE(module, name)                                                                   \
+    void sb_testing_case_##module##_##name(SB_TestingCase *__sb_case)
+
+#define SB_TEST_CASE(m, n)                                                                          \
     do {                                                                                            \
-        expr;                                                                                       \
-        SB_TestingCase *sb_case = &(__sb_testing.cases.list[__sb_testing.cases.count - 1]);         \
+        SB_DA_ADD(__sb_testing.cases);                                                              \
+        SB_TestingCase *sb_case = SB_DA_LAST(__sb_testing.cases);                                   \
+        sb_string_append_cstr(&sb_case->module, #m);                                                \
+        sb_string_append_cstr(&sb_case->name, #n);                                                  \
+        sb_testing_case_##m##_##n(sb_case);                                                         \
         sb_testing_case_report(sb_case);                                                            \
     } while (0)
 
@@ -267,7 +267,7 @@ SB_Testing __sb_testing;
 #define SB_ASSERT_ARRAY_EQ(x, y, n)                                                                 \
     do {                                                                                            \
         bool has_failed_case = false;                                                               \
-        for (size_t i = 0; i < n; ++i) {                                                            \
+        for (int i = 0; i < n; ++i) {                                                               \
             if ((x)[i] != (y)[i]) {                                                                 \
                 if (!has_failed_case) {                                                             \
                     sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_ARRAY_EQ");     \
@@ -289,7 +289,7 @@ SB_Testing __sb_testing;
 #define SB_ASSERT_ARRAY_NEAR(x, y, n, abs_err)                                                      \
     do {                                                                                            \
         bool has_failed_case = false;                                                               \
-        for (size_t i = 0; i < n; ++i) {                                                            \
+        for (int i = 0; i < n; ++i) {                                                               \
             if (!SB_FLT_NEAR((x)[i], (y)[i], abs_err)) {                                            \
                 if (!has_failed_case) {                                                             \
                     sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_ARRAY_NEAR");   \
@@ -311,8 +311,8 @@ SB_Testing __sb_testing;
 #define SB_ASSERT_ARRAY2_EQ(x, y, m, n)                                                             \
     do {                                                                                            \
         bool has_failed_case = false;                                                               \
-        for (size_t i = 0; i < n; ++i) {                                                            \
-            for (size_t j = 0; j < m; ++j) {                                                        \
+        for (int i = 0; i < n; ++i) {                                                               \
+            for (int j = 0; j < m; ++j) {                                                           \
                 if ((x)[i][j] != (y)[i][j]) {                                                       \
                     if (!has_failed_case) {                                                         \
                         sb_testing_assert_failed(__sb_case, __FILE__, __LINE__,                     \
@@ -336,8 +336,8 @@ SB_Testing __sb_testing;
 #define SB_ASSERT_ARRAY2_NEAR(x, y, m, n, abs_err)                                                  \
     do {                                                                                            \
         bool has_failed_case = false;                                                               \
-        for (size_t i = 0; i < n; ++i) {                                                            \
-            for (size_t j = 0; j < m; ++j) {                                                        \
+        for (int i = 0; i < n; ++i) {                                                               \
+            for (int j = 0; j < m; ++j) {                                                           \
                 if (!SB_FLT_NEAR((x)[i][j], (y)[i][j], abs_err)) {                                  \
                     if (!has_failed_case) {                                                         \
                         sb_testing_assert_failed(__sb_case, __FILE__, __LINE__,                     \
@@ -380,24 +380,24 @@ SB_Testing __sb_testing;
 
 #define SB_ASSERT_CSTR_EQ(x, y)                                                                     \
     do {                                                                                            \
-        if ((x) == nullptr && (y) == nullptr) {                                                     \
+        if ((x) == NULL && (y) == NULL) {                                                           \
             sb_testing_assert_success(__sb_case);                                                   \
         } else {                                                                                    \
-            if ((x) == nullptr) {                                                                   \
+            if ((x) == NULL) {                                                                      \
                 sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_CSTR_EQ");          \
-                peinrf(#x" is NULL while y not\n");                                                 \
-            } else if ((y) == nullptr) {                                                            \
+                printf(#x" is NULL while y not\n");                                                 \
+            } else if ((y) == NULL) {                                                               \
                 sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_CSTR_EQ");          \
                 printf(#y" is NULL while x not\n");                                                 \
             } else {                                                                                \
-                size_t i = 0;                                                                       \
+                int i = 0;                                                                          \
                 bool failed = false;                                                                \
                 while (!failed && (x)[i] && (y)[i]) {                                               \
                     if ((x)[i] != (y)[i]) {                                                         \
                         failed = true;                                                              \
                         sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_CSTR_EQ");  \
                         printf(#x" != "#y", the first not equal occurred at "#x                     \
-                            "[%d](%c) != "#y"[%d](%c)\n", i, (x)[i], (y)[i]);                       \
+                            "[%d](%c) != "#y"[%d](%c)\n", i, i, (x)[i], (y)[i]);                    \
                     }                                                                               \
                     ++i;                                                                            \
                 }                                                                                   \
@@ -415,14 +415,14 @@ SB_Testing __sb_testing;
 
 #define SB_ASSERT_CSTR_NE(x, y)                                                                     \
     do {                                                                                            \
-        if ((x) == nullptr && (y) == nullptr) {                                                     \
+        if ((x) == NULL && (y) == NULL) {                                                           \
             sb_testing_assert_failed(__sb_case, __FILE__, __LINE__, "ASSERT_CSTR_NE");              \
             printf("both "#x" and "#y" are NULL\n");                                                \
         } else {                                                                                    \
-            if ((x) == nullptr || (y) == nullptr) {                                                 \
+            if ((x) == NULL || (y) == NULL) {                                                       \
                 sb_testing_assert_success(__sb_case);                                               \
             } else {                                                                                \
-                size_t i = 0;                                                                       \
+                int i = 0;                                                                          \
                 bool success = false;                                                               \
                 while (!success && (x)[i] && (y)[i]) {                                              \
                     if ((x)[i] != (y)[i]) {                                                         \
@@ -443,6 +443,23 @@ SB_Testing __sb_testing;
         }                                                                                           \
     } while (0)
 
+#define SB_DA_ADD(da)                                                                               \
+    do {                                                                                            \
+        if (!(da).list) {                                                                           \
+            /* init da */                                                                           \
+            (da).capacity = 8;                                                                      \
+            (da).list = malloc(sizeof(*(da).list) * (da).capacity);                                 \
+        } else {                                                                                    \
+            if ((da).count == (da).capacity) {                                                      \
+                (da).capacity *= 2;                                                                 \
+                (da).list = realloc((da).list,                                                      \
+                    sizeof(*(da).list) * (da).capacity);                                            \
+            }                                                                                       \
+        }                                                                                           \
+        ++(da).count;                                                                               \
+    } while(0)
+
+#define SB_DA_LAST(da) (&((da).list[(da).count - 1]))
 
 #define SB_DA_APPEND(da, x)                                                                         \
     do {                                                                                            \
@@ -549,6 +566,7 @@ SB_String *sb_string_trim_left(SB_String *str);
 SB_String *sb_string_trim_right(SB_String *str);
 SB_String *sb_string_trim(SB_String *str);
 SB_String sb_path_join(const char *parent, const char *child);
+SB_String sb_path_dirname(const char *path);
 SB_StringList sb_split_cstr(const char* str);
 bool sb_should_compile(const char *src, const char *target);
 void sb_print_command(const char **cmd, int count);
@@ -799,6 +817,9 @@ SB_Target sb_create_elf(const char *name)
     sb_string_clean(&target.compiler);
     sb_string_append_cstr(&target.compiler, sb_default_compiler__);
     target.path = sb_path_join(sb_build_dir__, name);
+    SB_String target_dir = sb_path_dirname(target.path.str);
+    mkdir_if_not_exists(target_dir.str);
+    sb_string_free(&target_dir);
     return target;
 }
 
@@ -812,6 +833,9 @@ SB_Target sb_create_object(const char *name)
     sb_string_append_cstr(&target.name, name);
     sb_string_append_cstr(&target.compiler, sb_default_compiler__);
     target.path = sb_path_join(sb_build_dir__, name);
+    SB_String target_dir = sb_path_dirname(target.path.str);
+    mkdir_if_not_exists(target_dir.str);
+    sb_string_free(&target_dir);
     return target;
 }
 
@@ -1604,7 +1628,7 @@ void sb_testing_case_report(SB_TestingCase *sb_case)
     printf(SB_TERM_COLOR_E);
 }
 
-void sb_testing_summary()
+int sb_testing_summary()
 {
     int passed_cnt = 0;
     int failed_cnt = 0;
@@ -1623,6 +1647,7 @@ void sb_testing_summary()
            "    %d"SB_TERM_COLOR_FAIL_S" failed\n"SB_TERM_COLOR_E,
            __sb_testing.cases.count, passed_cnt, failed_cnt);
     printf("=====================================\n");
+    return failed_cnt;
 }
 
 const char* sb_dir()
@@ -1759,6 +1784,26 @@ SB_String sb_path_join(const char *parent, const char *child)
         sb_string_append_cstr(&output, parent);
         sb_string_append_char(&output, '/');
         sb_string_append_cstr(&output, child);
+    }
+    return output;
+}
+
+SB_String sb_path_dirname(const char *path)
+{
+    SB_String output = {0};
+    if (!path) {
+        return output;
+    }
+
+    sb_string_append_cstr(&output, path);
+    for (int i = output.count - 1; i >= 0; --i) {
+        if (output.str[i] == '/') {
+            if (i < output.count - 1) {
+                output.str[i + 1] = '\0';
+                output.count = i + 1;
+            }
+            break;
+        }
     }
     return output;
 }

@@ -70,7 +70,8 @@ typedef struct SB_Target {
     SB_TargetType target_type;
 } SB_Target;
 
-void sb_set_build_dir(const char* dir);
+void sb_set_build_dir(const char *dir);
+const char *sb_build_dir();
 
 SB_Target sb_create_elf(const char *name);
 SB_Target sb_create_object(const char *name);
@@ -139,6 +140,7 @@ void sb_flag_show_usage();
 
 
 // ------ unit test suit ---
+
 #define SB_TESTING_MODULE_NAME_LEN 47
 
 typedef struct SB_TestingCase {
@@ -166,7 +168,7 @@ int sb_testing_summary();
 #define SB_ABS(x) ((x) > 0 ? (x) : -(x))
 #define SB_FLT_NEAR(x, y, err) (SB_ABS((x) - (y)) < err)
 
-SB_Testing __sb_testing;
+extern SB_Testing __sb_testing;
 
 #define SB_DECL_CASE(module, name)                                                                  \
     void sb_testing_case_##module##_##name(SB_TestingCase *__sb_case)
@@ -517,8 +519,6 @@ SB_Testing __sb_testing;
 #endif // SB_H_
 
 
-#define SB_IMPLEMENTATION
-
 #ifdef SB_IMPLEMENTATION
 
 #include <stdio.h>
@@ -805,6 +805,11 @@ void sb_set_build_dir(const char* dir)
     if (!mkdir_if_not_exists(sb_build_dir__)) {
         abort();
     }
+}
+
+const char *sb_build_dir()
+{
+    return sb_build_dir__;
 }
 
 SB_Target sb_create_elf(const char *name)

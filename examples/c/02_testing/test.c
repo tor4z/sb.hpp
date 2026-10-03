@@ -1,25 +1,21 @@
-#define SB_IMPLEMEATION
+#define SB_IMPLEMENTATION
 #include "sb.h"
 
-void test_int_add()
+SB_DEF_CASE(integer_number, add)
 {
-    SB_CASE("int", "add");
 
     SB_ASSERT_EQ(1 + 1, 2);
     SB_ASSERT_EQ(1 + 2, 5);
 }
 
-void test_float_add()
+SB_DEF_CASE(floating_number, add)
 {
-    SB_CASE("float", "add");
-
     SB_ASSERT_NEAR(1.0f + 1.0f, 2.0f, 0.00001f);
 }
 
 int main()
 {
-    SB_TEST_CASE(test_int_add());
-    SB_TEST_CASE(test_float_add());
-    sb_testing_summary();
-    return 0;
+    SB_TEST_CASE(integer_number, add);
+    SB_TEST_CASE(floating_number, add);
+    return sb_testing_summary();
 }

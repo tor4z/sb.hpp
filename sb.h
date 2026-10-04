@@ -116,6 +116,8 @@ SB_String sb_shell_p(const char *first, ...);
 
 #define sb_auto_rebuild_self(argc, argv) sb_auto_rebuild_self__(argc, argv, __FILE__)
 bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
+void sb_self_add_dep(const char *file);
+
 
 int sb_string_append_substr(SB_String *string, const char *start, const char *end);
 int sb_string_append_char(SB_String *string, char c);
@@ -125,6 +127,9 @@ void sb_string_clean(SB_String *string);
 void sb_string_free(SB_String *string);
 bool sb_string_empty(const SB_String *string);
 bool sb_string_reserve(SB_String *string, int count);
+
+#define log_info(...)   printf("[MSG]: "__VA_ARGS__)
+#define log_error(...)  fprintf(stderr, "[ERR]: "__VA_ARGS__)
 
 // ----- flags ------
 
@@ -458,6 +463,9 @@ extern SB_Testing __sb_testing;
                     sizeof(*(da).list) * (da).capacity);                                            \
             }                                                                                       \
         }                                                                                           \
+        for (int i = 0; i < sizeof(*(da).list); ++i) {                                              \
+            *(((char*)(&(da).list[(da).count])) + i) = 0;                                           \
+        }                                                                                           \
         ++(da).count;                                                                               \
     } while(0)
 
@@ -553,6 +561,7 @@ extern SB_Testing __sb_testing;
 #   define FILE_MTIME_NS(st)   TIMESPEC_TO_NS(st.st_mtim)
 #endif
 
+static SB_StringList sb_self_dep_files__ = {};
 static const char *sb_build_dir__ = "./";
 static const char *sb_default_compiler__ = "cc";
 static const char *sb_excluded_flags[] = {
@@ -574,7 +583,7 @@ void sb_print_command(const char **cmd, int count);
 bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
 {
     if (!argv || argc == 0) {
-        fprintf(stderr, "Invalid argc argv.\n");
+        log_error("Invalid argc argv.\n");
         return false;
     }
 
@@ -588,6 +597,10 @@ bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
     strcpy(tmp_path, argv[0]);
     strcat(tmp_path, tmp_suffix);
     char sb_name[128];
+    bool should_rebuild = false;
+
+    SB_DA_ADD(sb_self_dep_files__);
+    sb_string_append_cstr(SB_DA_LAST(sb_self_dep_files__), src);
 
     strncpy(sb_name, argv[0], 128);
     if (is_tmp) {
@@ -601,18 +614,25 @@ bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
         return false;
     }
 
-    if (stat(src, &st) == 0) {
-        src_mtime = FILE_MTIME_NS(st);
-    } else {
-        perror("Error src file stats");
-        return false;
+    for (int i = 0; i < sb_self_dep_files__.count; ++i) {
+        SB_String *dep_file = sb_self_dep_files__.list + i;
+        if (stat(dep_file->str, &st) == 0) {
+            src_mtime = FILE_MTIME_NS(st);
+            should_rebuild = src_mtime > bin_mtime;
+            if (should_rebuild) {
+                break;
+            }
+        } else {
+            log_error("`self` depends on %s file, but not found\n", dep_file->str);
+            return false;
+        }
     }
 
     const char *cmd[SB_MAX_ARGS];
-    if (src_mtime > bin_mtime) {
+    if (should_rebuild) {
         // rebuild self
         if (is_tmp) {
-            printf("Rebuilding self ..\n");
+            log_info("Rebuilding self ..\n");
             const char* tmp[] = {sb_default_compiler__, src, "-o", sb_name};
             if (sb_command_v(tmp, (sizeof(tmp) / sizeof(*tmp))) == 0) {
                 cmd[0] = sb_name;
@@ -631,7 +651,7 @@ bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
         }
         copy_file(argv[0], tmp_path);
         if (chmod(tmp_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) != 0) {
-            perror("Failed to set executable permissions");
+            log_error("Failed to set executable permissions");
             return false;
         }
         cmd[0] = tmp_path;
@@ -645,6 +665,13 @@ bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
         remove(tmp_path);
     }
     return true;
+}
+
+void sb_self_add_dep(const char *file)
+{
+    SB_DA_ADD(sb_self_dep_files__);
+    SB_String *file_str = SB_DA_LAST(sb_self_dep_files__);
+    sb_string_append_cstr(file_str, file);
 }
 
 int sb_command_v(const char **cmd, int count)
@@ -915,7 +942,7 @@ bool sb_add_src_s(SB_Target *target, SB_String src)
         }
         break;
     default:
-        fprintf(stderr, "Ignore add file `%s` for target type: %d\n", src.str, target->target_type);
+        log_error("Ignore add file `%s` for target type: %d\n", src.str, target->target_type);
         break;
     }
 
@@ -1187,7 +1214,7 @@ bool sb_build(SB_Target *target)
     for (int i = 0; i < target->deps.count; ++i) {
         SB_Target dep = target->deps.list[i];
         if (!sb_build(&dep) || dep.status != 0) {
-            fprintf( stderr, "Failed to build %s\n", dep.name.str);
+            log_error("Failed to build %s\n", dep.name.str);
             target->status = -1;
             return false;
         }
@@ -1214,7 +1241,7 @@ bool sb_build(SB_Target *target)
             }
 
             if (!sb_build(obj) || obj->status != 0) {
-                fprintf(stderr, "Failed to build %s\n", obj->name.str);
+                log_error("Failed to build %s\n", obj->name.str);
                 target->status = -1;
                 return false;
             }
@@ -1242,7 +1269,7 @@ bool sb_build(SB_Target *target)
         cmd[cmd_idx++] = target->name.str;
     } break;
     default:
-        fprintf(stderr, "Unknown entity type: %d\n", target->target_type);
+        log_error("Unknown target type: %d\n", target->target_type);
         break;
     }
 
@@ -1259,7 +1286,7 @@ bool sb_build(SB_Target *target)
         target->status = sb_command_v(cmd, cmd_idx);
     } else {
         if (target->target_type == SB_ELF) {
-            printf("No update for %s\n", target->name.str);
+            log_info("No update for %s\n", target->name.str);
         }
         target->status = 0;
     }
@@ -1284,7 +1311,7 @@ bool sb_should_compile(const char *src, const char *target)
             }
         }
     } else {
-        fprintf(stderr, "source file %s not found\n", src);
+        log_error("source file %s not found\n", src);
         return false;
     }
 
@@ -1345,7 +1372,7 @@ static SB_ArgParser sb_ap__ = {0};
 SB_AP_Scheme *sb_flag_add_scheme(const char *key, const char *help)
 {
     if (sb_ap__.scheme_idx >= SB_MAX_ARGS) {
-        fprintf(stderr, "Tooo much args to parse\n");
+        log_error("Tooo much args to parse\n");
         abort();
     }
 
@@ -1500,7 +1527,7 @@ bool sb_flag_parse(int argc, char **argv)
                         if (!sb_string_empty(this_str)) {
                             SB_DA_APPEND(scheme->vi, atoi(this_str->str));
                         } else {
-                            fprintf(stderr, "Bad int type argument: %s\n", this_str->str);
+                            log_error("Bad int type argument: %s\n", this_str->str);
                         }
                         //  free tmp string
                         sb_string_free(this_str);
@@ -1517,7 +1544,7 @@ bool sb_flag_parse(int argc, char **argv)
                         if (!sb_string_empty(this_str)) {
                             SB_DA_APPEND(scheme->vf, atof(this_str->str));
                         } else {
-                            fprintf(stderr, "Bad float type argument: %s\n", this_str->str);
+                            log_error("Bad float type argument: %s\n", this_str->str);
                         }
                         //  free tmp string
                         sb_string_free(this_str);
@@ -1527,14 +1554,14 @@ bool sb_flag_parse(int argc, char **argv)
                 } break;
                 case SB_APST_UNKNOWN:
                 default:
-                    fprintf(stderr, "Unknown argument type for %s\n", this_arg);
+                    log_error("Unknown argument type for %s\n", this_arg);
                     return false;
                 }
                 continue;
             }
         }
         if (!arg_matched) {
-            fprintf(stderr, "Unknown argument: %s\n", this_arg);
+            log_error("Unknown argument: %s\n", this_arg);
             return false;
         }
     }

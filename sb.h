@@ -464,7 +464,7 @@ extern SB_Testing __sb_testing;
             }                                                                                       \
         }                                                                                           \
         for (int i = 0; i < sizeof(*(da).list); ++i) {                                              \
-            *(((char*)(&(da).list[(da).count])) + i) = 0;                                           \
+            *(((char*)((da).list + (da).count)) + i) = 0;                                           \
         }                                                                                           \
         ++(da).count;                                                                               \
     } while(0)

@@ -1271,6 +1271,7 @@ bool sb_build(SB_Target *target)
             target->status = -1;
             return false;
         }
+        sb_add_dep_file_s(target, dep.path);
     }
 
     for (int i = 0; i < target->dep_files.count; ++i) {

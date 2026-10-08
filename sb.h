@@ -15,6 +15,7 @@ typedef enum SB_TargetType
     SB_ELF = 0,
     SB_OBJECT,
     SB_PHONY,
+    SB_ARCHIVE,
 } SB_TargetType; // enum SB_TargetType
 
 typedef struct SB_Target SB_Target;
@@ -60,6 +61,7 @@ typedef struct SB_Target {
     SB_String path;
     SB_String compiler;
     SB_String linker;
+    SB_String ar;
     SB_StringList srcs;
     SB_StringList flags;
     SB_TargetList deps;
@@ -76,9 +78,11 @@ const char *sb_build_dir();
 SB_Target sb_create_elf(const char *name);
 SB_Target sb_create_object(const char *name);
 SB_Target sb_create_phony(const char *name);
+SB_Target sb_create_archive(const char *name);
 
 bool sb_set_compiler(SB_Target *target, const char *compiler);
 bool sb_set_linker(SB_Target *target, const char *linker);
+bool sb_set_ar(SB_Target *target, const char *ar);
 
 bool sb_add_src(SB_Target *target, const char *src);
 bool sb_add_src_s(SB_Target *target, SB_String src);
@@ -564,6 +568,7 @@ extern SB_Testing __sb_testing;
 static SB_StringList sb_self_dep_files__ = {};
 static const char *sb_build_dir__ = "./";
 static const char *sb_default_compiler__ = "cc";
+static const char *sb_default_ar__ = "ar";
 static const char *sb_excluded_flags[] = {
     "-o", "-c"
 };
@@ -880,6 +885,22 @@ SB_Target sb_create_phony(const char *name)
     return target;
 }
 
+SB_Target sb_create_archive(const char *name)
+{
+    assert(name && strlen(name) > 0 && "Bad archive name");
+
+    SB_Target target = {0};
+    target.target_type = SB_ARCHIVE;
+    target.always_build = false;
+    sb_string_append_cstr(&target.name, name);
+    sb_string_append_cstr(&target.ar, sb_default_ar__);
+    target.path = sb_path_join(sb_build_dir__, name);
+    SB_String target_dir = sb_path_dirname(target.path.str);
+    mkdir_if_not_exists(target_dir.str);
+    sb_string_free(&target_dir);
+    return target;
+}
+
 bool sb_set_compiler(SB_Target *target, const char *compiler)
 {
     if (!target) {
@@ -898,6 +919,16 @@ bool sb_set_linker(SB_Target *target, const char *linker)
 
     sb_string_clean(&target->linker);
     return sb_string_append_cstr(&target->linker, linker);
+}
+
+bool sb_set_ar(SB_Target *target, const char *ar)
+{
+    if (!target) {
+        return false;
+    }
+
+    sb_string_clean(&target->ar);
+    return sb_string_append_cstr(&target->ar, ar);
 }
 
 bool sb_check_append_object_from_src(SB_Target *target, SB_String src)
@@ -1201,6 +1232,28 @@ bool sb_always_build(SB_Target *target, bool sure)
     return true;
 }
 
+static int sb_build_cmd_fill_flags(SB_Target *target, const char *cmd[SB_MAX_ARGS], int cmd_idx, bool set_output)
+{
+    for (int flag_i = 0; flag_i < target->flags.count; ++flag_i) {
+        SB_String *flag = &(target->flags.list[flag_i]);
+        if (set_output && strcmp(flag->str, "-o") == 0) {
+            set_output = false;
+        }
+        if (strcmp(flag->str, SB_TARGET) == 0) {
+            cmd[cmd_idx++] = target->path.str;
+        } else {
+            cmd[cmd_idx++] = flag->str;
+        }
+    }
+
+    if (set_output) {
+        cmd[cmd_idx++] = "-o";
+        cmd[cmd_idx++] = target->path.str;
+    }
+
+    return cmd_idx;
+}
+
 bool sb_build(SB_Target *target)
 {
     if (!target) {
@@ -1250,9 +1303,7 @@ bool sb_build(SB_Target *target)
             }
             cmd[cmd_idx++] = obj->path.str;
         }
-
-        cmd[cmd_idx++] = "-o";
-        cmd[cmd_idx++] = target->path.str;
+        cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, true);
     } break;
     case SB_OBJECT: {
         cmd[cmd_idx++] = target->compiler.str;
@@ -1263,29 +1314,40 @@ bool sb_build(SB_Target *target)
             }
             cmd[cmd_idx++] = src->str;
         }
+        cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, true);
+    } break;
+    case SB_ARCHIVE: {
+        cmd[cmd_idx++] = target->ar.str;
+        cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, false);
+        cmd[cmd_idx++] = target->path.str;
+
+        for (int obj_i = 0; obj_i < target->objs.count; ++obj_i) {
+            SB_Target *obj = &(target->objs.list[obj_i]);
+            if (!sb_build(obj) || obj->status != 0) {
+                fprintf(stderr, "Failed to build %s\n", obj->name.str);
+                target->status = -1;
+                return false;
+            }
+            if (should_build || sb_should_compile(obj->path.str, target->path.str)) {
+                should_build = true;
+            }
+            cmd[cmd_idx++] = obj->path.str;
+        }
     } break;
     case SB_PHONY: {
         should_build = true;
         cmd[cmd_idx++] = target->name.str;
+        cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, false);
     } break;
     default:
         log_error("Unknown target type: %d\n", target->target_type);
         break;
     }
 
-    for (int flag_i = 0; flag_i < target->flags.count; ++flag_i) {
-        SB_String *flag = &(target->flags.list[flag_i]);
-        if (strcmp(flag->str, SB_TARGET) == 0) {
-            cmd[cmd_idx++] = target->path.str;
-        } else {
-            cmd[cmd_idx++] = flag->str;
-        }
-    }
-
     if (should_build) {
         target->status = sb_command_v(cmd, cmd_idx);
     } else {
-        if (target->target_type == SB_ELF) {
+        if (target->target_type == SB_ELF || target->target_type == SB_ARCHIVE) {
             log_info("No update for %s\n", target->name.str);
         }
         target->status = 0;

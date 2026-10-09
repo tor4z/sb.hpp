@@ -900,6 +900,7 @@ SB_Target sb_create_phony(const char *name)
     target.target_type = SB_PHONY;
     target.always_build = true;
     if (name) {
+        sb_set_cmd(&target, name);
         sb_string_append_cstr(&target.name, name);
     } else {
         sb_string_append_cstr(&target.name, "unnamed_target");
@@ -1374,7 +1375,8 @@ bool sb_build(SB_Target *target)
     if (should_build) {
         target->status = sb_command_v(cmd, cmd_idx);
     } else {
-        if (target->target_type == SB_ELF || target->target_type == SB_ARCHIVE) {
+        if (target->target_type == SB_ELF || target->target_type == SB_ARCHIVE ||
+            target->target_type == SB_ANY) {
             log_info("No update for %s\n", target->name.str);
         }
         target->status = 0;

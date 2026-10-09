@@ -959,7 +959,6 @@ bool sb_check_append_object_from_src(SB_Target *target, SB_String src)
     sb_string_append_cstr(&obj_name, ".o");
     SB_Target obj = sb_create_object(obj_name.str);
     sb_set_compiler(&obj, "");   // set compiler on build time
-    sb_add_flag(&obj, SB_TARGET);
     sb_add_flag(&obj, "-c");
     sb_add_flag(&obj, "-Wno-unused-command-line-argument");
     sb_add_src_s(&obj, src);

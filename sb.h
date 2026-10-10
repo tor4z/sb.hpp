@@ -27,6 +27,11 @@ typedef struct SB_String {
     int capacity;
 } SB_String; // struct SB_String
 
+typedef struct SB_StringView {
+    char *str;
+    int count;
+} SB_StringView; // SB_StringView
+
 typedef struct SB_StringList {
     SB_String *list;
     int count;
@@ -61,6 +66,7 @@ typedef struct SB_Target {
     SB_String name;
     SB_String path;
     SB_String cmd;
+    SB_String obj_d_path;
     SB_StringList srcs;
     SB_StringList flags;
     SB_TargetList deps;
@@ -123,15 +129,18 @@ SB_String sb_shell_p(const char *first, ...);
 bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
 void sb_self_add_dep(const char *file);
 
+SB_String sb_file_slurp(const char *filename);
 
 int sb_string_append_substr(SB_String *string, const char *start, const char *end);
 int sb_string_append_char(SB_String *string, char c);
 int sb_string_append_cstr(SB_String *string, const char *cstr);
 SB_String sb_string_copy(const SB_String *src);
+SB_String sb_string_copy_sv(const SB_StringView *src);
 void sb_string_clean(SB_String *string);
 void sb_string_free(SB_String *string);
 bool sb_string_empty(const SB_String *string);
 bool sb_string_reserve(SB_String *string, int count);
+bool sb_string_resize(SB_String *string, int count);
 
 #define log_info(...)   printf("[MSG]: "__VA_ARGS__)
 #define log_error(...)  fprintf(stderr, "[ERR]: "__VA_ARGS__)
@@ -460,16 +469,17 @@ extern SB_Testing __sb_testing;
         if (!(da).list) {                                                                           \
             /* init da */                                                                           \
             (da).capacity = 8;                                                                      \
-            (da).list = malloc(sizeof(*(da).list) * (da).capacity);                                 \
+            int nbytes = sizeof(*(da).list) * (da).capacity;                                        \
+            (da).list = malloc(nbytes);                                                             \
+            memset((da).list, 0, nbytes);                                                           \
         } else {                                                                                    \
             if ((da).count == (da).capacity) {                                                      \
                 (da).capacity *= 2;                                                                 \
-                (da).list = realloc((da).list,                                                      \
-                    sizeof(*(da).list) * (da).capacity);                                            \
+                int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
+                int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
+                (da).list = realloc((da).list, nbytes);                                             \
+                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
             }                                                                                       \
-        }                                                                                           \
-        for (int i = 0; i < sizeof(*(da).list); ++i) {                                              \
-            *(((char*)((da).list + (da).count)) + i) = 0;                                           \
         }                                                                                           \
         ++(da).count;                                                                               \
     } while(0)
@@ -481,12 +491,16 @@ extern SB_Testing __sb_testing;
         if (!(da).list) {                                                                           \
             /* init da */                                                                           \
             (da).capacity = 8;                                                                      \
-            (da).list = malloc(sizeof(*(da).list) * (da).capacity);                                 \
+            int nbytes = sizeof(*(da).list) * (da).capacity;                                        \
+            (da).list = malloc(nbytes);                                                             \
+            memset((da).list, 0, nbytes);                                                           \
         } else {                                                                                    \
             if ((da).count == (da).capacity) {                                                      \
                 (da).capacity *= 2;                                                                 \
-                (da).list = realloc((da).list,                                                      \
-                    sizeof(*(da).list) * (da).capacity);                                            \
+                int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
+                int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
+                (da).list = realloc((da).list, nbytes);                                             \
+                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
             }                                                                                       \
         }                                                                                           \
         (da).list[(da).count] = x;                                                                  \
@@ -498,12 +512,16 @@ extern SB_Testing __sb_testing;
         if (!(da).list) {                                                                           \
             /* init da */                                                                           \
             (da).capacity = (n / 8 + 1) * 8;                                                        \
-            (da).list = malloc(sizeof(*(da).list) * (da).capacity);                                 \
+            int nbytes = sizeof(*(da).list) * (da).capacity;                                        \
+            (da).list = malloc(nbytes);                                                             \
+            memset((da).list, 0, nbytes);                                                           \
         } else {                                                                                    \
             if ((da).count == (da).capacity) {                                                      \
                 (da).capacity *= 2;                                                                 \
-                (da).list = realloc((da).list,                                                      \
-                    sizeof(*(da).list) * (da).capacity);                                            \
+                int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
+                int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
+                (da).list = realloc((da).list, nbytes);                                             \
+                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
             }                                                                                       \
         }                                                                                           \
         for (int i = 0; i < n; ++i) {                                                               \
@@ -888,6 +906,8 @@ SB_Target sb_create_object(const char *name)
     sb_string_append_cstr(&target.name, name);
     sb_string_append_cstr(&target.cmd, sb_default_compiler__);
     target.path = sb_path_join(sb_build_dir__, name);
+    target.obj_d_path = sb_string_copy(&target.path);
+    sb_string_append_cstr(&target.obj_d_path, ".d");
     SB_String target_dir = sb_path_dirname(target.path.str);
     mkdir_if_not_exists(target_dir.str);
     sb_string_free(&target_dir);
@@ -1274,8 +1294,130 @@ static int sb_build_cmd_fill_flags(SB_Target *target, const char *cmd[SB_MAX_ARG
     return cmd_idx;
 }
 
+void sb_parse_make_style_dep_skip_space(const SB_String *content, int *i)
+{
+    if (!content || !i) {
+        return;
+    }
+
+    while(*i < content->count) {
+        char c = content->str[*i];
+        if (c == ' ' || c == '\t') {
+            ++(*i);
+            continue;
+        }
+    
+        if (c == '\\') {
+            (*i) += 2;
+            continue;
+        }
+        break;
+    }
+}
+
+SB_StringView sb_parse_make_style_dep_read_path(const SB_String *content, int *i)
+{
+#define IS_NUM(x)   ((x) >= '0' && (x) <= '9')
+#define IS_ALPHA(x) ((x) >= 'a' && (x) <= 'z' || (x) >= 'A' && (x) <= 'Z')
+
+    SB_StringView sv = {};
+    if (!content || !i) {
+        return sv;
+    }
+
+    sv.str = content->str + *i;
+    while(*i < content->count) {
+        char c = content->str[*i];
+        if (!IS_NUM(c) && !IS_ALPHA(c) && c != '.' && c != '_' && c != '-' && c != '/') break;
+        ++(*i);
+        ++sv.count;
+    }
+    return sv;
+
+#undef IS_NUM
+#undef IS_ALPHA
+}
+
+bool sb_parse_make_style_dep_exp_path(const SB_String *content, int *i)
+{
+    if (!content || !i) {
+        return false;
+    }
+
+    SB_StringView path = sb_parse_make_style_dep_read_path(content, i);
+    if (path.count == 0) {
+        return false;
+    }
+    return true;
+}
+
+bool sb_parse_make_style_dep_exp_char(const SB_String *content, char c, int *i)
+{
+    if (!content || !i) {
+        return false;
+    }
+
+    if (*i >= content->count || content->str[(*i)] != c) {
+        log_error("make_style_depend file is ill-formed. expect %c, fount %c at %d\n", c, content->str[(*i)], *i);
+        return false;
+    }
+    ++(*i);
+    return true;
+}
+
+bool sb_parse_make_style_dep_exp_colon(const SB_String *content, int *i)
+{
+    return sb_parse_make_style_dep_exp_char(content, ':', i);
+}
+
+bool sb_parse_make_style_dep_exp_new_line(const SB_String *content, int *i)
+{
+    return sb_parse_make_style_dep_exp_char(content, '\n', i);
+}
+
+static bool sb_resolve_make_style_depend(SB_Target *target)
+{
+    if (!target || sb_string_empty(&target->obj_d_path)) {
+        return false;
+    }
+
+    struct stat st;
+    if (stat(target->path.str, &st) != 0) {
+        return false;
+    }
+
+    SB_String content = sb_file_slurp(target->obj_d_path.str);
+    if (sb_string_empty(&content)) {
+        return false;
+    }
+
+    SB_StringView path = {};
+    for (int i = 0; i < content.count;) {
+        sb_parse_make_style_dep_skip_space(&content, &i);
+        if (!sb_parse_make_style_dep_exp_path(&content, &i)) return false;
+        sb_parse_make_style_dep_skip_space(&content, &i);
+        if (!sb_parse_make_style_dep_exp_colon(&content, &i)) return false;
+        while(true) {
+            sb_parse_make_style_dep_skip_space(&content, &i);
+            path = sb_parse_make_style_dep_read_path(&content, &i);
+            if (path.count == 0) {
+                break;
+            } else {
+                sb_add_dep_file_s(target, sb_string_copy_sv(&path));
+            }
+        }
+        sb_parse_make_style_dep_exp_new_line(&content, &i);
+    }
+
+    return true;
+}
+
 static bool sb_build_resolve_depend(SB_Target *target)
 {
+    if (!target) {
+        return false;
+    }
+
     bool should_build = target->always_build || sb_string_empty(&target->path);
 
     for (int i = 0; i < target->deps.count; ++i) {
@@ -1286,6 +1428,10 @@ static bool sb_build_resolve_depend(SB_Target *target)
             return false;
         }
         sb_add_dep_file_s(target, dep.path);
+    }
+
+    if (target->target_type == SB_OBJECT) {
+        sb_resolve_make_style_depend(target);
     }
 
     for (int i = 0; i < target->dep_files.count; ++i) {
@@ -1340,6 +1486,12 @@ bool sb_build(SB_Target *target)
             cmd[cmd_idx++] = src->str;
         }
         cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, true);
+        if (!sb_string_empty(&target->obj_d_path)) {
+            cmd[cmd_idx++] = "-MMD";
+            cmd[cmd_idx++] = "-MP";
+            cmd[cmd_idx++] = "-MF";
+            cmd[cmd_idx++] = target->obj_d_path.str;
+        }
     } break;
     case SB_ARCHIVE: {
         cmd_idx = sb_build_cmd_fill_flags(target, cmd, cmd_idx, false);
@@ -1979,6 +2131,36 @@ SB_StringList sb_split_cstr(const char* str)
     return string_list;
 }
 
+SB_String sb_file_slurp(const char *filename)
+{
+    SB_String content = {};
+    if (!filename) {
+        return content;
+    }
+
+    FILE *fp = fopen(filename, "r");
+    if (!fp) {
+        log_error("file_slurp: can not open file %s\n", filename);
+        return content;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    int size = ftell(fp);
+    rewind(fp);
+
+    if (size < 0) {
+        fclose(fp);
+        return content;
+    }
+
+    sb_string_resize(&content, size);
+    int read_bytes = fread(content.str, 1, size, fp);
+    content.str[read_bytes] = '\0';
+
+    fclose(fp);
+    return content;
+}
+
 int sb_string_append_substr(SB_String *string, const char *start, const char *end)
 {
     if (!string || !start || !end) {
@@ -2081,6 +2263,18 @@ SB_String sb_string_copy(const SB_String *src)
     return dest;
 }
 
+SB_String sb_string_copy_sv(const SB_StringView *src)
+{
+    SB_String dest = {0};
+    if (!src || src->count == 0 || !src->str) {
+        return dest;
+    }
+
+    sb_string_resize(&dest, src->count);
+    memcpy(dest.str, src->str, src->count);
+    return dest;
+}
+
 void sb_string_free(SB_String *string)
 {
     if (!string) {
@@ -2106,9 +2300,19 @@ void sb_string_clean(SB_String *string)
     string->count = 0;
 }
 
+bool sb_string_resize(SB_String *string, int count)
+{
+    if (!sb_string_reserve(string, count + 1)) {
+        return false;
+    }
+    string->count = count;
+    string->str[count] = '\0';
+    return true;
+}
+
 bool sb_string_reserve(SB_String *string, int count)
 {
-    if (!string || count <= 0) {
+    if (!string) {
         return false;
     }
 

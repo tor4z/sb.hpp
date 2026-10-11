@@ -83,6 +83,7 @@ const char *sb_build_dir();
 SB_Target sb_create_any(const char *name);
 SB_Target sb_create_elf(const char *name);
 SB_Target sb_create_object(const char *name);
+SB_Target sb_create_object_from_src(const char *src);
 SB_Target sb_create_phony(const char *name);
 SB_Target sb_create_archive(const char *name);
 
@@ -914,6 +915,17 @@ SB_Target sb_create_object(const char *name)
     return target;
 }
 
+SB_Target sb_create_object_from_src(const char *src)
+{
+    SB_String target_name = {0};
+    sb_string_append_cstr(&target_name, src);
+    sb_string_append_cstr(&target_name, ".o");
+    SB_Target target = sb_create_object(target_name.str);
+    sb_add_src(&target, src);
+    sb_string_free(&target_name);
+    return target;
+}
+
 SB_Target sb_create_phony(const char *name)
 {
     SB_Target target = {0};
@@ -975,15 +987,11 @@ bool sb_check_append_object_from_src(SB_Target *target, SB_String src)
         return false;
     }
 
-    SB_String obj_name = sb_string_copy(&src);
-    sb_string_append_cstr(&obj_name, ".o");
-    SB_Target obj = sb_create_object(obj_name.str);
+    SB_Target obj = sb_create_object_from_src(src.str);
     sb_set_compiler(&obj, "");   // set compiler on build time
     sb_add_flag(&obj, "-c");
     sb_add_flag(&obj, "-Wno-unused-command-line-argument");
-    sb_add_src_s(&obj, src);
     sb_always_build(&obj, target->always_build);
-    sb_string_free(&obj_name);
 
     sb_add_obj(target, obj);
     return true;

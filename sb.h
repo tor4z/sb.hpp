@@ -91,6 +91,7 @@ bool sb_set_cmd(SB_Target *target, const char *cmd);
 bool sb_set_compiler(SB_Target *target, const char *compiler);
 bool sb_set_linker(SB_Target *target, const char *linker);
 bool sb_set_ar(SB_Target *target, const char *ar);
+bool sb_disable_make_styled_dep(SB_Target *target);
 
 bool sb_add_src(SB_Target *target, const char *src);
 bool sb_add_src_s(SB_Target *target, SB_String src);
@@ -989,6 +990,12 @@ bool sb_set_linker(SB_Target *target, const char *linker)
 bool sb_set_ar(SB_Target *target, const char *ar)
 {
     return sb_set_cmd(target, ar);
+}
+
+bool sb_disable_make_styled_dep(SB_Target *target)
+{
+    sb_string_clean(&target->obj_d_path);
+    return true;
 }
 
 bool sb_check_append_object_from_src(SB_Target *target, SB_String src)

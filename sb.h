@@ -490,7 +490,7 @@ extern SB_Testing __sb_testing;
                 int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
                 int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
                 (da).list = realloc((da).list, nbytes);                                             \
-                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
+                memset((char*)(da).list + nbytes_used, 0, nbytes - nbytes_used);                    \
             }                                                                                       \
         }                                                                                           \
         ++(da).count;                                                                               \
@@ -512,7 +512,7 @@ extern SB_Testing __sb_testing;
                 int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
                 int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
                 (da).list = realloc((da).list, nbytes);                                             \
-                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
+                memset((char*)(da).list + nbytes_used, 0, nbytes - nbytes_used);                    \
             }                                                                                       \
         }                                                                                           \
         (da).list[(da).count] = x;                                                                  \
@@ -533,7 +533,7 @@ extern SB_Testing __sb_testing;
                 int nbytes = sizeof(*(da).list) * (da).capacity;                                    \
                 int nbytes_used = sizeof(*(da).list) * (da).count;                                  \
                 (da).list = realloc((da).list, nbytes);                                             \
-                memset((da).list + nbytes_used, 0, nbytes - nbytes_used);                           \
+                memset((char*)(da).list + nbytes_used, 0, nbytes - nbytes_used);                    \
             }                                                                                       \
         }                                                                                           \
         for (int i = 0; i < n; ++i) {                                                               \

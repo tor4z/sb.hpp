@@ -94,26 +94,36 @@ bool sb_set_ar(SB_Target *target, const char *ar);
 
 bool sb_add_src(SB_Target *target, const char *src);
 bool sb_add_src_s(SB_Target *target, SB_String src);
-bool sb_add_srcs(SB_Target *target, SB_StringList srcs);
+#define sb_add_srcs(target, ...)        \
+    sb_add_srcs_v(target, (const char *[]){__VA_ARGS__}, (sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char*)))
+bool sb_add_srcs_da(SB_Target *target, SB_StringList srcs);
 bool sb_add_srcs_v(SB_Target *target, const char **srcs, int count);
 
 bool sb_add_flag(SB_Target *target, const char *flag);
 bool sb_add_flag_pair(SB_Target *target, const char *flag1, const char *flag2);
 bool sb_add_flag_s(SB_Target *target, SB_String flag);
-bool sb_add_flags(SB_Target *target, SB_StringList flags);
+#define sb_add_flags(target, ...)       \
+    sb_add_flags_v(target, (const char *[]){__VA_ARGS__}, (sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char*)))
+bool sb_add_flags_da(SB_Target *target, SB_StringList flags);
 bool sb_add_flags_v(SB_Target *target, const char **flags, int count);
 
 bool sb_add_dep_file(SB_Target *target, const char *dep);
 bool sb_add_dep_file_s(SB_Target *target, SB_String dep);
-bool sb_add_dep_files(SB_Target *target, SB_StringList deps);
+#define sb_add_dep_files(target, ...)   \
+    sb_add_dep_files_v(target, (const char *[]){__VA_ARGS__}, (sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char*)))
+bool sb_add_dep_files_da(SB_Target *target, SB_StringList deps);
 bool sb_add_dep_files_v(SB_Target *target, const char **deps, int count);
 
 bool sb_add_dep(SB_Target *target, SB_Target dep);
-bool sb_add_deps(SB_Target *target, SB_TargetList deps);
+#define sb_add_deps(target, ...)        \
+    sb_add_objs_v(target, (const char *[]){__VA_ARGS__}, (sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char*)))
+bool sb_add_deps_da(SB_Target *target, SB_TargetList deps);
 bool sb_add_deps_v(SB_Target *target, const SB_Target *deps, int count);
 
 bool sb_add_obj(SB_Target *target, SB_Target obj);
-bool sb_add_objs(SB_Target *target, SB_TargetList objs);
+#define sb_add_objs(target, ...)        \
+    sb_add_objs_v(target, (const char *[]){__VA_ARGS__}, (sizeof((const char *[]){__VA_ARGS__}) / sizeof(const char*)))
+bool sb_add_objs_da(SB_Target *target, SB_TargetList objs);
 bool sb_add_objs_v(SB_Target *target, const SB_Target *objs, int count);
 
 bool sb_always_build(SB_Target *target, bool sure);
@@ -1038,7 +1048,7 @@ bool sb_add_src(SB_Target *target, const char *src)
     return sb_add_src_s(target, src_string);
 }
 
-bool sb_add_srcs(SB_Target *target, SB_StringList srcs)
+bool sb_add_srcs_da(SB_Target *target, SB_StringList srcs)
 {
     if (!target) {
         return false;
@@ -1102,7 +1112,7 @@ bool sb_add_flag_pair(SB_Target *target, const char *flag1, const char *flag2)
     return sb_add_flag(target, flag1) && sb_add_flag(target, flag2);
 }
 
-bool sb_add_flags(SB_Target *target, SB_StringList flags)
+bool sb_add_flags_da(SB_Target *target, SB_StringList flags)
 {
     if (!target) {
         return false;
@@ -1160,7 +1170,7 @@ bool sb_add_dep_file_s(SB_Target *target, SB_String dep)
     return true;
 }
 
-bool sb_add_dep_files(SB_Target *target, SB_StringList deps)
+bool sb_add_dep_files_da(SB_Target *target, SB_StringList deps)
 {
     if (!target) {
         return false;
@@ -1200,7 +1210,7 @@ bool sb_add_dep(SB_Target *target, SB_Target dep)
     return true;
 }
 
-bool sb_add_deps(SB_Target *target, SB_TargetList deps)
+bool sb_add_deps_da(SB_Target *target, SB_TargetList deps)
 {
     if (!target) {
         return false;
@@ -1234,7 +1244,7 @@ bool sb_add_obj(SB_Target *target, SB_Target obj)
     return true;
 }
 
-bool sb_add_objs(SB_Target *target, SB_TargetList objs)
+bool sb_add_objs_da(SB_Target *target, SB_TargetList objs)
 {
     if (!target) {
         return false;

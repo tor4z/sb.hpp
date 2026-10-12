@@ -137,8 +137,8 @@ SB_String sb_shell(const char *cmd_str);
 SB_String sb_shell_v(const char **cmd, int count);
 SB_String sb_shell_p(const char *first, ...);
 
-#define sb_auto_rebuild_self(argc, argv) sb_auto_rebuild_self__(argc, argv, __FILE__)
-bool sb_auto_rebuild_self__(int argc, char **argv, const char *src);
+#define sb_self_auto_rebuild(argc, argv) sb_self_auto_rebuild__(argc, argv, __FILE__)
+bool sb_self_auto_rebuild__(int argc, char **argv, const char *src);
 void sb_self_add_dep(const char *file);
 
 SB_String sb_file_slurp(const char *filename);
@@ -616,7 +616,7 @@ SB_StringList sb_split_cstr(const char* str);
 bool sb_should_compile(const char *src, const char *target);
 void sb_print_command(const char **cmd, int count);
 
-bool sb_auto_rebuild_self__(int argc, char **argv, const char *src)
+bool sb_self_auto_rebuild__(int argc, char **argv, const char *src)
 {
     if (!argv || argc == 0) {
         log_error("Invalid argc argv.\n");

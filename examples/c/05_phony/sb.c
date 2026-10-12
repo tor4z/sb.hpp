@@ -3,7 +3,7 @@
 
 int main(int argc, char **argv)
 {
-    sb_auto_rebuild_self(argc, argv);
+    sb_self_auto_rebuild(argc, argv);
 
     SB_Target exe = sb_create_elf("00_exe");
     sb_set_compiler(&exe, "cc");

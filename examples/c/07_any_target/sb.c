@@ -4,7 +4,7 @@
 
 int main(int argc, char **argv)
 {
-    sb_auto_rebuild_self(argc, argv);
+    sb_self_auto_rebuild(argc, argv);
 
     SB_Target hello = sb_create_any("hello.txt");
     sb_set_cmd(&hello, "touch");

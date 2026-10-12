@@ -3,7 +3,7 @@
 
 int main(int argc, char **argv)
 {
-    sb_auto_rebuild_self(argc, argv);
+    sb_self_auto_rebuild(argc, argv);
 
     SB_Target a = sb_create_object("a.c.o");
     sb_add_flag(&a, "-c");

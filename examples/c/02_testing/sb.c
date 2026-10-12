@@ -4,7 +4,7 @@
 
 int main(int argc, char **argv)
 {
-    sb_auto_rebuild_self(argc, argv);
+    sb_self_auto_rebuild(argc, argv);
 
     SB_Target testing = sb_create_elf("testing");
     sb_add_src(&testing, "test.c");
